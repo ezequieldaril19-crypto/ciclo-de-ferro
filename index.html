@@ -1497,8 +1497,30 @@ function toast(msg){
 }
 
 /* ================= Início ================= */
-/* ===== Versão instalável: offline, instalação, backup em arquivo ===== */
-if ("serviceWorker" in navigator) window.addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(() => {}); });
+/* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
+const APP_BUILD = "09/10/2026 23:13";
+if ("serviceWorker" in navigator){
+  let hadController = !!navigator.serviceWorker.controller;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").then(reg => {
+      // procura versão nova sempre que o app volta para a tela
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
+    }).catch(() => {});
+  });
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController){ hadController = true; return; }
+    showUpdateBar();
+  });
+}
+function showUpdateBar(){
+  if (document.getElementById("updBar")) return;
+  const bar = document.createElement("div");
+  bar.id = "updBar"; bar.setAttribute("role", "status");
+  bar.style.cssText = "position:fixed;left:12px;right:12px;bottom:calc(var(--tab-h) + 12px + env(safe-area-inset-bottom,0px));z-index:31;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--blue);color:#02060f;font-weight:700;max-width:496px;margin:0 auto;clip-path:polygon(1% 0,100% 6%,99% 100%,0 92%)";
+  bar.innerHTML = `<span style="flex:1">Nova versão do app pronta.</span><button style="background:#02060f;color:var(--ink);border:0;padding:8px 14px;font-family:var(--f-impact);letter-spacing:.06em;text-transform:uppercase">Atualizar</button>`;
+  bar.querySelector("button").onclick = () => location.reload();
+  document.body.appendChild(bar);
+}
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 let installEvt = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; if (ui.tab === "ajustes") render(); });
@@ -1526,7 +1548,7 @@ function bindPwaPanel(){
   if (b) b.onclick = async () => { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; render(); };
   const d = daysSinceBackup();
   const note = document.querySelector("#dataSec + section .note");
-  if (note) note.textContent = `Seus registros ficam salvos só neste celular. ${d === null ? "Você ainda não fez nenhum backup." : `Último backup: há ${d} ${d === 1 ? "dia" : "dias"}.`} Exporte toda semana e guarde o arquivo no Drive ou no WhatsApp.`;
+  if (note) note.textContent = `Seus registros ficam salvos só neste celular. ${d === null ? "Você ainda não fez nenhum backup." : `Último backup: há ${d} ${d === 1 ? "dia" : "dias"}.`} Exporte toda semana e guarde o arquivo no Drive ou no WhatsApp. Versão do app: ${APP_BUILD}.`;
 }
 async function pwaExport(data){
   const name = `ciclo-de-ferro-${todayKey()}.json`;
