@@ -199,6 +199,12 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .sets input{padding:8px 10px;text-align:center}
 .sets .ck{width:42px;height:42px;border:1px solid var(--line-2);background:#08080b;display:grid;place-items:center;color:var(--dim);font-weight:700}
 .sets .ck[aria-pressed=true]{background:var(--red);color:var(--ink);border-color:var(--red)}
+.ex-h .grow{flex:1}
+.ex-tools{display:flex;gap:4px;align-self:center}
+.ex-tools .mini{width:34px;height:34px}
+.results.picks li button[aria-pressed=true]{background:#1c0b0f;box-shadow:inset 4px 0 0 var(--red)}
+.results.picks li button[aria-pressed=true] .rn::after{content:"  ✓";color:var(--red-hot);font-weight:700}
+.btn:disabled{opacity:.45}
 .sets-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);text-align:center;font-weight:700}
 .hist{list-style:none;margin:0;padding:0}
 .hist li{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px dashed var(--line-2);font-size:14px}
@@ -358,7 +364,23 @@ function recommendProgram(days, level){
   if (level === "int") return "regpark";
   return "reeves";
 }
-const LEGS = /agacha|terra|hack|stiff|leg|panturrilha|flexora/i;
+const LEGS = /agacha|terra|hack|stiff|leg|panturrilha|flexora|extensora|afundo|búlgaro|pélvica|glúteo|abdutora|adutora|step-up|good morning/i;
+
+/* ================= Biblioteca de exercícios ================= */
+const EX_GROUPS = {
+  "Peito": "Supino reto|Supino reto (pegada aberta)|Supino reto com halteres|Supino inclinado|Supino inclinado com halteres|Supino declinado|Supino na máquina|Supino no Smith|Crucifixo com halteres|Crucifixo inclinado|Peck deck (voador)|Crossover na polia|Crossover polia baixa|Flexão de braço|Paralelas (mergulho)|Pullover",
+  "Costas": "Barra fixa|Barra fixa supinada|Puxada pela frente|Puxada com triângulo|Puxada supinada|Pulldown braços estendidos|Remada curvada|Remada curvada supinada|Remada unilateral (serrote)|Remada baixa sentada|Remada cavalinho|Remada na máquina|Levantamento terra|Encolhimento com barra|Encolhimento com halteres|Hiperextensão lombar",
+  "Ombros": "Desenvolvimento militar|Desenvolvimento com halteres|Desenvolvimento Arnold|Desenvolvimento na máquina|Elevação lateral|Elevação lateral na polia|Elevação frontal|Crucifixo inverso|Face pull|Remada alta",
+  "Bíceps": "Rosca direta com barra|Rosca direta barra W|Rosca alternada com halteres|Rosca martelo|Rosca scott|Rosca concentrada|Rosca na polia|Rosca inclinada com halteres|Rosca 21",
+  "Tríceps": "Tríceps testa|Tríceps na polia|Tríceps corda|Tríceps francês|Tríceps coice|Tríceps unilateral na polia|Supino fechado|Mergulho no banco",
+  "Antebraço": "Rosca de punho|Rosca inversa|Caminhada do fazendeiro",
+  "Quadríceps": "Agachamento livre|Agachamento frontal|Agachamento no Smith|Agachamento goblet|Agachamento sumô|Agachamento búlgaro|Hack squat|Leg press 45°|Cadeira extensora|Afundo (passada)|Step-up",
+  "Posterior e glúteos": "Stiff|Levantamento terra romeno|Mesa flexora|Cadeira flexora|Flexora em pé|Elevação pélvica|Glúteo na polia|Cadeira abdutora|Cadeira adutora|Good morning",
+  "Panturrilha": "Panturrilha em pé|Panturrilha sentado|Panturrilha no leg press|Panturrilha no Smith",
+  "Abdômen": "Abdominal supra|Abdominal infra|Prancha|Abdominal na polia|Elevação de pernas na barra|Roda abdominal|Abdominal oblíquo|Russian twist"
+};
+const EXERCISES = Object.entries(EX_GROUPS).flatMap(([g, list]) => list.split("|").map(n => ({n, g})));
+function allExercises(){ return EXERCISES.concat((S.customEx || []).map(e => ({n:e.n, g:e.g, mine:true}))); }
 
 /* ================= Estado ================= */
 const DEFAULT_SETTINGS = () => ({
@@ -367,7 +389,7 @@ const DEFAULT_SETTINGS = () => ({
   manualKcal:null,
   week:["B","A","M","A","B","A","M"],
   days:3, level:"ini", program:"golden6",
-  meals: DEFAULT_MEALS.map(m => ({...m})), saved:[],
+  meals: DEFAULT_MEALS.map(m => ({...m})), saved:[], customEx:[], myWo:[],
   custom:[], recent:[], t:0
 });
 let S = DEFAULT_SETTINGS();
@@ -379,6 +401,8 @@ function mergeSettings(raw){
   const s = Object.assign(DEFAULT_SETTINGS(), raw || {});
   if (!Array.isArray(s.meals) || !s.meals.length) s.meals = DEFAULT_MEALS.map(m => ({...m}));
   if (!Array.isArray(s.saved)) s.saved = [];
+  if (!Array.isArray(s.customEx)) s.customEx = [];
+  if (!Array.isArray(s.myWo)) s.myWo = [];
   return s;
 }
 function loadLocal(){
@@ -990,15 +1014,90 @@ function lastPerf(name, beforeKey){
   return null;
 }
 function topReps(target){ if (typeof target === "number") return target; const m = String(target).match(/(\d+)\s*$/); return m ? +m[1] : null; }
+function exItem(n, sets, reps, k){
+  const last = lastPerf(n, k), ls = last ? last.e.sets : [];
+  return {n, t:`${sets}x${reps}`, reps, sets: Array.from({length:sets}, (_, j) => ({kg: ls[j] ? ls[j].kg : (ls.length ? ls[ls.length-1].kg : ""), r:"", ok:false}))};
+}
 function newSession(k){
   const prog = PROGRAMS[S.program];
   const done = allWorkouts().filter(x => x.wo.done && x.wo.prog === S.program && x.k < k).length;
   const si = done % prog.sessions.length, ses = prog.sessions[si];
-  return {prog:S.program, si, name:ses.name, done:false,
-    ex: ses.ex.map(([n, sets, reps]) => {
-      const last = lastPerf(n, k);
-      return {n, t:`${sets}x${reps}`, reps, sets: Array.from({length:sets}, (_, j) => ({kg: last && last.e.sets[j] ? last.e.sets[j].kg : "", r:"", ok:false}))};
-    })};
+  return {prog:S.program, si, name:ses.name, done:false, ex: ses.ex.map(([n, sets, reps]) => exItem(n, sets, reps, k))};
+}
+const woLabel = wo => PROGRAMS[wo.prog]?.name || (wo.prog === "meu" ? "Meu treino" : "Treino livre");
+function isLegs(n){ const e = allExercises().find(x => x.n === n); return e ? ["Quadríceps","Posterior e glúteos","Panturrilha"].includes(e.g) || /terra/i.test(n) : LEGS.test(n); }
+
+function openExercisePicker(k, wo){
+  let group = "Todos";
+  const sel = [];
+  const groups = ["Todos", ...Object.keys(EX_GROUPS)].concat(S.customEx.length ? ["Meus"] : []);
+  openSheet(`${sheetHead("Adicionar exercícios")}
+    <input id="exq" type="search" placeholder="Buscar: supino, rosca, agachamento…" autocomplete="off" aria-label="Buscar exercício">
+    <div class="chips" id="exg">${groups.map(g => `<button class="chip" data-eg="${esc(g)}" aria-pressed="${g === "Todos"}">${esc(g)}</button>`).join("")}</div>
+    <ul class="results picks" id="exl"></ul>
+    <div class="grid2"><div class="field"><label for="exs">Séries</label><input id="exs" type="number" inputmode="numeric" min="1" max="12" value="3"></div>
+      <div class="field"><label for="exr">Repetições</label><input id="exr" type="text" value="10" placeholder="10 ou 8-12"></div></div>
+    <button class="btn wide" id="exOk">Escolha os exercícios</button>
+    <details><summary>Não achou? Criar exercício</summary>
+      <div class="field" style="margin-top:8px"><label for="exNew">Nome</label><input id="exNew" type="text" maxlength="50" placeholder="Ex.: Remada no TRX"></div>
+      <div class="field" style="margin-top:8px"><label for="exNewG">Grupo</label><select id="exNewG">${Object.keys(EX_GROUPS).map(g => `<option>${esc(g)}</option>`).join("")}</select></div>
+      <button class="btn ghost wide" id="exNewOk" style="margin-top:8px">Criar e marcar</button></details>`);
+  const inWo = new Set(wo.ex.map(e => e.n));
+  const okBtn = $("#exOk");
+  const updOk = () => { okBtn.textContent = sel.length ? `Adicionar ${sel.length} ${sel.length === 1 ? "exercício" : "exercícios"}` : "Escolha os exercícios"; okBtn.disabled = !sel.length; };
+  const draw = () => {
+    const words = norm($("#exq").value).split(/\s+/).filter(Boolean);
+    const g = words.length ? "Todos" : group;
+    document.querySelectorAll("[data-eg]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.eg === g)));
+    const list = allExercises().filter(e => (g === "Todos" || (g === "Meus" ? e.mine : e.g === g)) && words.every(w => norm(e.n).includes(w) || norm(e.g).includes(w)));
+    $("#exl").innerHTML = list.length ? list.map(e => `<li><button data-ex="${esc(e.n)}" aria-pressed="${sel.includes(e.n)}"><div class="rn">${esc(e.n)}</div><div class="rm">${esc(e.g)}${e.mine ? " · seu" : ""}${inWo.has(e.n) ? " · já está no treino" : ""}</div></button></li>`).join("")
+      : `<li class="note" style="padding:12px 0">Nenhum exercício com esse nome. Crie o seu logo abaixo.</li>`;
+    $("#exl").querySelectorAll("[data-ex]").forEach(b => b.onclick = () => {
+      const n = b.dataset.ex, i = sel.indexOf(n);
+      if (i >= 0) sel.splice(i, 1); else sel.push(n);
+      b.setAttribute("aria-pressed", String(i < 0)); updOk();
+    });
+  };
+  $("#exq").oninput = draw;
+  document.querySelectorAll("[data-eg]").forEach(b => b.onclick = () => {
+    group = b.dataset.eg; $("#exq").value = ""; draw();
+  });
+  $("#exNewOk").onclick = () => {
+    const n = $("#exNew").value.trim();
+    if (!n){ toast("Dê um nome ao exercício"); return; }
+    if (!allExercises().some(e => norm(e.n) === norm(n))){ S.customEx.push({n, g:$("#exNewG").value}); touchSettings(); }
+    if (!sel.includes(n)) sel.push(n);
+    $("#exNew").value = ""; $("#exq").value = ""; draw(); updOk(); toast("Exercício criado e marcado");
+  };
+  okBtn.onclick = () => {
+    if (!sel.length) return;
+    const sets = Math.max(1, Math.min(12, Math.round(num($("#exs").value) || 3)));
+    const repsRaw = $("#exr").value.trim() || "10";
+    const reps = /^\d+$/.test(repsRaw) ? +repsRaw : repsRaw;
+    sel.forEach(n => wo.ex.push(exItem(n, sets, reps, k)));
+    touchDay(k); closeSheet(); render(); toast(`${sel.length} ${sel.length === 1 ? "exercício adicionado" : "exercícios adicionados"}`);
+  };
+  draw(); updOk();
+}
+function openSaveTemplate(k, wo){
+  const existing = wo.tpl && S.myWo.find(t => t.id === wo.tpl);
+  openSheet(`${sheetHead("Salvar meu treino")}
+    <div class="field"><label for="tplName">Nome do treino</label><input id="tplName" type="text" maxlength="40" value="${esc(existing ? existing.name : (wo.prog === "livre" ? "" : wo.name))}" placeholder="Ex.: Treino A · Peito e tríceps"></div>
+    <p class="note" style="margin:0">Guarda os ${wo.ex.length} exercícios, com séries e repetições, para começar igual nos próximos dias.${existing ? " Como ele veio de um treino salvo, você pode atualizar o original." : ""}</p>
+    ${existing ? `<button class="btn wide" id="tplUpd">Atualizar "${esc(existing.name)}"</button><button class="btn ghost wide" id="tplNew">Salvar como outro treino</button>` : `<button class="btn wide" id="tplNew">Salvar</button>`}`);
+  const pack = () => wo.ex.map(e => ({n:e.n, sets:e.sets.length, reps:e.reps}));
+  $("#tplUpd")?.addEventListener("click", () => {
+    const n = $("#tplName").value.trim() || existing.name;
+    existing.name = n; existing.ex = pack(); wo.name = n;
+    touchSettings(); touchDay(k); closeSheet(); render(); toast("Treino atualizado");
+  });
+  $("#tplNew").onclick = () => {
+    const n = $("#tplName").value.trim();
+    if (!n){ toast("Dê um nome ao treino"); return; }
+    const t = {id:uid(), name:n, ex:pack()};
+    S.myWo.push(t); wo.prog = "meu"; wo.tpl = t.id; wo.name = n;
+    touchSettings(); touchDay(k); closeSheet(); render(); toast("Treino salvo");
+  };
 }
 function progressionHint(ex, k){
   const last = lastPerf(ex.n, k);
@@ -1008,7 +1107,7 @@ function progressionHint(ex, k){
   const best = Math.max(...ls.map(s => num(s.kg) || 0));
   const allHit = top && ls.length && ls.every(s => (num(s.r)||0) >= top);
   const summary = ls.map(s => `${s.kg ? String(s.kg).replace(".", ",") : "–"}×${s.r||"–"}`).join(", ");
-  if (allHit && best) return `${shortDate(last.k)}: ${esc(summary)}. <b>Bateu todas as reps: suba para ${fmt1(best + (LEGS.test(ex.n) ? 5 : 2.5))} kg.</b>`;
+  if (allHit && best) return `${shortDate(last.k)}: ${esc(summary)}. <b>Bateu todas as reps: suba para ${fmt1(best + (isLegs(ex.n) ? 5 : 2.5))} kg.</b>`;
   return `${shortDate(last.k)}: ${esc(summary)}. Mantenha a carga até completar todas as séries.`;
 }
 function renderTreino(){
@@ -1021,10 +1120,16 @@ function renderTreino(){
       <div class="label" style="margin-bottom:6px">Próxima sessão · ${esc(preview.name)}</div>
       <table class="mac"><tbody>${preview.ex.map(e => `<tr><td>${esc(e.n)}</td><td>${e.t}</td></tr>`).join("")}</tbody></table>
       <div class="row" style="margin-top:14px"><button class="btn grow" id="startWo">Começar treino</button><button class="btn ghost" id="chgProg">Trocar</button></div></section>`;
+    html += secH("Montar meu treino", `${allExercises().length} exercícios`, true) + `<section class="panel">
+      ${S.myWo.length ? `<ul class="list-edit">${S.myWo.map(t => `<li><span>${esc(t.name)} <small class="muted">· ${t.ex.length} ${t.ex.length === 1 ? "exercício" : "exercícios"}</small></span><button class="add" data-tpl="${t.id}">Começar</button><button class="mini del" data-tplrm="${t.id}" aria-label="Apagar ${esc(t.name)}">×</button></li>`).join("")}</ul>`
+        : `<p class="note" style="margin:0 0 4px">Escolha os exercícios que quiser da lista completa, por grupo muscular. Depois salve o treino para repetir nos próximos dias.</p>`}
+      <button class="newmeal" id="freeWo" style="margin-top:10px">+ Treino livre</button></section>`;
   } else {
-    html += `<section class="panel" style="margin-top:12px"><div class="label">${esc(PROGRAMS[wo.prog]?.name || "Treino")}${wo.done ? " · concluído" : ""}</div><div class="prog-name">${esc(wo.name)}</div>`;
+    html += `<section class="panel" style="margin-top:12px"><div class="label">${esc(woLabel(wo))}${wo.done ? " · concluído" : ""}</div><div class="prog-name">${esc(wo.name)}</div>`;
+    if (!wo.ex.length) html += `<p class="note" style="margin:6px 0 0">Nenhum exercício ainda. Toque em "Adicionar exercício" e escolha da lista.</p>`;
     wo.ex.forEach((e, ei) => {
-      html += `<div class="ex"><div class="ex-h"><h4>${esc(e.n)}</h4><span class="tg">${e.t}</span></div><div class="hint">${progressionHint(e, k)}</div>
+      html += `<div class="ex"><div class="ex-h"><h4>${esc(e.n)}</h4><span class="tg">${e.sets.length}x${esc(e.reps)}</span>
+        ${wo.done ? "" : `<span class="grow"></span><span class="ex-tools"><button class="mini" data-addset="${ei}" aria-label="Mais uma série de ${esc(e.n)}">+</button><button class="mini" data-rmset="${ei}" aria-label="Uma série a menos de ${esc(e.n)}" ${e.sets.length <= 1 ? "disabled" : ""}>−</button><button class="mini del" data-rmex="${ei}" aria-label="Tirar ${esc(e.n)} do treino">×</button></span>`}</div><div class="hint">${progressionHint(e, k)}</div>
         <div class="sets"><span></span><span class="sets-h">kg</span><span class="sets-h">reps</span><span></span>
         ${e.sets.map((s, si) => `<span class="sn">${si+1}</span>
           <input type="text" inputmode="decimal" aria-label="Carga série ${si+1}" data-ei="${ei}" data-si="${si}" data-f="kg" value="${esc(String(s.kg).replace(".", ","))}" placeholder="kg">
@@ -1032,7 +1137,9 @@ function renderTreino(){
           <button class="ck" aria-label="Série ${si+1} feita" aria-pressed="${!!s.ok}" data-ei="${ei}" data-si="${si}">✓</button>`).join("")}
         </div></div>`;
     });
-    html += `<div class="row" style="margin-top:16px">${wo.done ? `<button class="btn ghost grow" id="reopen">Reabrir para editar</button>` : `<button class="btn grow" id="finish">Finalizar treino</button>`}<button class="btn ghost" id="discard">Descartar</button></div>
+    if (!wo.done) html += `<button class="newmeal" id="addEx" style="margin-top:16px">+ Adicionar exercício</button>`;
+    html += `<div class="row" style="margin-top:16px">${wo.done ? `<button class="btn ghost grow" id="reopen">Reabrir para editar</button>` : `<button class="btn grow" id="finish" ${wo.ex.length ? "" : "disabled"}>Finalizar treino</button>`}<button class="btn ghost" id="discard">Descartar</button></div>
+      ${wo.ex.length ? `<button class="btn ghost wide" id="saveTpl" style="margin-top:10px">${wo.tpl ? "Salvar mudanças no meu treino" : "Salvar como meu treino"}</button>` : ""}
       <div id="discardConfirm" hidden style="margin-top:10px"><p class="note warn" style="margin:0 0 8px">Descartar apaga o registro deste treino.</p><div class="row"><button class="btn grow" id="discardYes">Sim, descartar</button><button class="btn ghost" id="discardNo">Cancelar</button></div></div></section>`;
   }
   const hist = allWorkouts().filter(x => x.wo.done).slice(-8).reverse();
@@ -1044,7 +1151,31 @@ function renderTreino(){
   bindDateBar();
   $("#chgProg")?.addEventListener("click", () => { ui.tab = "ajustes"; ui.scrollTo = "progSec"; render(); });
   $("#startWo")?.addEventListener("click", () => { const dd = getDay(k, true); dd.wo = newSession(k); touchDay(k); render(); });
+  $("#freeWo")?.addEventListener("click", () => {
+    const dd = getDay(k, true); dd.wo = {prog:"livre", name:"Treino livre", done:false, ex:[]}; touchDay(k); render(); openExercisePicker(k, dd.wo);
+  });
+  view.querySelectorAll("[data-tpl]").forEach(b => b.onclick = () => {
+    const t = S.myWo.find(x => x.id === b.dataset.tpl); if (!t) return;
+    const dd = getDay(k, true); dd.wo = {prog:"meu", tpl:t.id, name:t.name, done:false, ex:t.ex.map(e => exItem(e.n, e.sets, e.reps, k))};
+    touchDay(k); render();
+  });
+  view.querySelectorAll("[data-tplrm]").forEach(b => b.onclick = () => {
+    S.myWo = S.myWo.filter(x => x.id !== b.dataset.tplrm); touchSettings(); render(); toast("Treino apagado");
+  });
   if (wo){
+    $("#addEx")?.addEventListener("click", () => openExercisePicker(k, wo));
+    $("#saveTpl")?.addEventListener("click", () => openSaveTemplate(k, wo));
+    view.querySelectorAll("[data-addset]").forEach(b => b.onclick = () => {
+      const e = wo.ex[+b.dataset.addset], last = e.sets[e.sets.length-1];
+      e.sets.push({kg: last ? last.kg : "", r:"", ok:false}); e.t = `${e.sets.length}x${e.reps}`; touchDay(k); render();
+    });
+    view.querySelectorAll("[data-rmset]").forEach(b => b.onclick = () => {
+      const e = wo.ex[+b.dataset.rmset]; if (e.sets.length <= 1) return;
+      e.sets.pop(); e.t = `${e.sets.length}x${e.reps}`; touchDay(k); render();
+    });
+    view.querySelectorAll("[data-rmex]").forEach(b => b.onclick = () => {
+      const [gone] = wo.ex.splice(+b.dataset.rmex, 1); touchDay(k); render(); toast(`${gone.n} saiu do treino`);
+    });
     let saveT;
     view.querySelectorAll("input[data-f]").forEach(inp => inp.addEventListener("input", () => {
       wo.ex[+inp.dataset.ei].sets[+inp.dataset.si][inp.dataset.f] = inp.value.replace(",", ".");
