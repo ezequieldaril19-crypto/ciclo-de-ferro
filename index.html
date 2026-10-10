@@ -1007,7 +1007,7 @@ function progressionHint(ex, k){
   const ls = last.e.sets.filter(s => s.kg || s.r);
   const best = Math.max(...ls.map(s => num(s.kg) || 0));
   const allHit = top && ls.length && ls.every(s => (num(s.r)||0) >= top);
-  const summary = ls.map(s => `${s.kg||"–"}×${s.r||"–"}`).join(", ");
+  const summary = ls.map(s => `${s.kg ? String(s.kg).replace(".", ",") : "–"}×${s.r||"–"}`).join(", ");
   if (allHit && best) return `${shortDate(last.k)}: ${esc(summary)}. <b>Bateu todas as reps: suba para ${fmt1(best + (LEGS.test(ex.n) ? 5 : 2.5))} kg.</b>`;
   return `${shortDate(last.k)}: ${esc(summary)}. Mantenha a carga até completar todas as séries.`;
 }
@@ -1027,7 +1027,7 @@ function renderTreino(){
       html += `<div class="ex"><div class="ex-h"><h4>${esc(e.n)}</h4><span class="tg">${e.t}</span></div><div class="hint">${progressionHint(e, k)}</div>
         <div class="sets"><span></span><span class="sets-h">kg</span><span class="sets-h">reps</span><span></span>
         ${e.sets.map((s, si) => `<span class="sn">${si+1}</span>
-          <input type="text" inputmode="decimal" aria-label="Carga série ${si+1}" data-ei="${ei}" data-si="${si}" data-f="kg" value="${esc(s.kg)}" placeholder="kg">
+          <input type="text" inputmode="decimal" aria-label="Carga série ${si+1}" data-ei="${ei}" data-si="${si}" data-f="kg" value="${esc(String(s.kg).replace(".", ","))}" placeholder="kg">
           <input type="text" inputmode="numeric" aria-label="Repetições série ${si+1}" data-ei="${ei}" data-si="${si}" data-f="r" value="${esc(s.r)}" placeholder="${esc(e.reps)}">
           <button class="ck" aria-label="Série ${si+1} feita" aria-pressed="${!!s.ok}" data-ei="${ei}" data-si="${si}">✓</button>`).join("")}
         </div></div>`;
@@ -1267,7 +1267,8 @@ function renderAjustes(){
     <div id="expOut" hidden><p class="note">Copie o texto abaixo e guarde num lugar seguro:</p><textarea id="expTxt" rows="4" style="font-size:12px" aria-label="Backup em texto"></textarea></div>
     <button class="btn ghost wide" id="wipe" style="color:var(--red-hot)">Apagar todos os dados</button>
     <div id="wipeConfirm" hidden><p class="note warn" style="margin:0 0 8px">Isso apaga refeições, pesos, medidas, treinos e ajustes. Não dá para desfazer.</p><div class="row"><button class="btn grow" id="wipeYes">Apagar tudo</button><button class="btn ghost" id="wipeNo">Cancelar</button></div></div>
-    <p class="note" style="margin:0">Alimentos: TACO 4ª edição, NEPA/Unicamp (597 itens). Industrializados e suplementos entram pelo cadastro de rótulo.</p>
+    <p class="note" style="margin:0">Alimentos: TACO 4ª edição, NEPA/Unicamp (597 itens). Industrializados e suplementos entram pelo código de barras ou pelo cadastro de rótulo.</p>
+    <p class="note" style="margin:0"><a href="https://ezequieldaril19-crypto.github.io/ciclo-de-ferro/privacidade.html" target="_blank" rel="noopener" style="color:var(--blue-hot)">Política de privacidade</a></p>
   </section>`;
   view.innerHTML = html;
   if (ui.scrollTo){ document.getElementById(ui.scrollTo)?.scrollIntoView({block:"start"}); ui.scrollTo = null; }
