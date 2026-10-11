@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Ciclo de Ferro</title>
+<title>Muscle Land</title>
 <meta name="description" content="Macros com a tabela TACO, ciclo de carboidratos, treinos old school, percentual de gordura e evolução.">
 <meta name="theme-color" content="#050507">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Ciclo de Ferro">
+<meta name="apple-mobile-web-app-title" content="Muscle Land">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Ciclo de Ferro">
-<meta property="og:title" content="Ciclo de Ferro: dieta e treino">
+<meta property="og:site_name" content="Muscle Land">
+<meta property="og:title" content="Muscle Land: dieta e treino">
 <meta property="og:description" content="Macros com a tabela TACO, ciclo de carboidratos, treino old school e % de gordura. Grátis, sem cadastro e sem anúncios.">
 <meta property="og:url" content="https://ezequieldaril19-crypto.github.io/ciclo-de-ferro/">
 <meta property="og:image" content="https://ezequieldaril19-crypto.github.io/ciclo-de-ferro/icons/og-image.jpg">
@@ -209,7 +209,7 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .sets .ck{width:42px;height:42px;border:1px solid var(--line-2);background:#08080b;display:grid;place-items:center;color:var(--dim);font-weight:700}
 .sets .ck[aria-pressed=true]{background:var(--red);color:var(--ink);border-color:var(--red)}
 .ex-h .grow{flex:1}
-.ex-tools{display:flex;gap:4px;align-self:center}
+.ex-tools{display:flex;gap:4px;align-self:center;margin-left:auto}
 .ex-tools .mini{width:34px;height:34px}
 .results.picks li button[aria-pressed=true]{background:#1c0b0f;box-shadow:inset 4px 0 0 var(--red)}
 .results.picks li button[aria-pressed=true] .rn::after{content:"  ✓";color:var(--red-hot);font-weight:700}
@@ -275,7 +275,7 @@ details summary{cursor:pointer;color:var(--blue-hot);font-weight:700;font-size:1
 <canvas id="ink" aria-hidden="true"></canvas>
 <div class="app">
   <header class="top">
-    <h1 class="brand">Ciclo de <b>Ferro</b></h1>
+    <h1 class="brand">Muscle <b>Land</b></h1>
     <div class="sync" id="sync"><i></i><span>neste aparelho</span></div>
   </header>
   <main id="view"></main>
@@ -1138,7 +1138,7 @@ function renderTreino(){
     if (!wo.ex.length) html += `<p class="note" style="margin:6px 0 0">Nenhum exercício ainda. Toque em "Adicionar exercício" e escolha da lista.</p>`;
     wo.ex.forEach((e, ei) => {
       html += `<div class="ex"><div class="ex-h"><h4>${esc(e.n)}</h4><span class="tg">${e.sets.length}x${esc(e.reps)}</span>
-        ${wo.done ? "" : `<span class="grow"></span><span class="ex-tools"><button class="mini" data-addset="${ei}" aria-label="Mais uma série de ${esc(e.n)}">+</button><button class="mini" data-rmset="${ei}" aria-label="Uma série a menos de ${esc(e.n)}" ${e.sets.length <= 1 ? "disabled" : ""}>−</button><button class="mini del" data-rmex="${ei}" aria-label="Tirar ${esc(e.n)} do treino">×</button></span>`}</div><div class="hint">${progressionHint(e, k)}</div>
+        ${wo.done ? "" : `<span class="ex-tools"><button class="mini" data-addset="${ei}" aria-label="Mais uma série de ${esc(e.n)}">+</button><button class="mini" data-rmset="${ei}" aria-label="Uma série a menos de ${esc(e.n)}" ${e.sets.length <= 1 ? "disabled" : ""}>−</button><button class="mini del" data-rmex="${ei}" aria-label="Tirar ${esc(e.n)} do treino">×</button></span>`}</div><div class="hint">${progressionHint(e, k)}</div>
         <div class="sets"><span></span><span class="sets-h">kg</span><span class="sets-h">reps</span><span></span>
         ${e.sets.map((s, si) => `<span class="sn">${si+1}</span>
           <input type="text" inputmode="decimal" aria-label="Carga série ${si+1}" data-ei="${ei}" data-si="${si}" data-f="kg" value="${esc(String(s.kg).replace(".", ","))}" placeholder="kg">
@@ -1440,11 +1440,11 @@ function renderAjustes(){
 
   if (typeof bindPwaPanel === "function") bindPwaPanel();
   $("#exp").onclick = async () => {
-    const data = JSON.stringify({app:"ciclo-de-ferro", v:1, exported:new Date().toISOString(), S, M});
+    const data = JSON.stringify({app:"muscle-land", v:1, exported:new Date().toISOString(), S, M});
     if (typeof pwaExport === "function"){ await pwaExport(data); return; }
     try{
       const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
-      if (dl){ await dl.save({filename:`ciclo-de-ferro-${todayKey()}.json`, data}); toast("Backup salvo"); return; }
+      if (dl){ await dl.save({filename:`muscle-land-${todayKey()}.json`, data}); toast("Backup salvo"); return; }
     }catch(e){ if (e && e.code === "declined") return; }
     $("#expOut").hidden = false; $("#expTxt").value = data; $("#expTxt").select();
   };
@@ -1454,12 +1454,12 @@ function renderAjustes(){
     rd.onload = () => {
       try{
         const d = JSON.parse(rd.result);
-        if (d.app !== "ciclo-de-ferro" || !d.S || !d.M) throw 0;
+        if (!["muscle-land", "ciclo-de-ferro"].includes(d.app) || !d.S || !d.M) throw 0;
         S = mergeSettings(d.S); M = d.M;
         const now = Date.now(); S.t = now; Object.values(M).forEach(m => m.t = now);
         markDirty("settings"); Object.keys(M).forEach(mk => markDirty("m-"+mk));
         toast("Backup importado"); render();
-      }catch(_){ toast("Esse arquivo não é um backup do Ciclo de Ferro"); }
+      }catch(_){ toast("Esse arquivo não é um backup do Muscle Land"); }
     };
     rd.readAsText(file);
   };
@@ -1507,7 +1507,7 @@ function toast(msg){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "09/10/2026 23:42";
+const APP_BUILD = "11/10/2026 09:44";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
@@ -1560,12 +1560,12 @@ function bindPwaPanel(){
   if (note) note.textContent = `Seus registros ficam salvos só neste celular. ${d === null ? "Você ainda não fez nenhum backup." : `Último backup: há ${d} ${d === 1 ? "dia" : "dias"}.`} Exporte toda semana e guarde o arquivo no Drive ou no WhatsApp. Versão do app: ${APP_BUILD}.`;
 }
 async function pwaExport(data){
-  const name = `ciclo-de-ferro-${todayKey()}.json`;
+  const name = `muscle-land-${todayKey()}.json`;
   const done = () => { S.lastBackup = Date.now(); touchSettings(); toast("Backup pronto"); render(); };
   try {
     const file = new File([data], name, {type:"application/json"});
     if (navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file], title:"Backup Ciclo de Ferro"});
+      await navigator.share({files:[file], title:"Backup Muscle Land"});
       done(); return;
     }
   } catch (e) { if (e && e.name === "AbortError") return; }
