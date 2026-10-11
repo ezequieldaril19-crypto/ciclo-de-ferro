@@ -1,5 +1,5 @@
 // Service worker do Muscle Land: guarda o app para funcionar sem internet.
-const CACHE = "ciclo-de-ferro-665db6200c";
+const CACHE = "ciclo-de-ferro-7aaa07e4c4";
 const ASSETS = ["./", "index.html", "manifest.webmanifest", "fonts/anton-latin-400-normal.woff2", "fonts/barlow-semi-condensed-latin-400-normal.woff2", "fonts/barlow-semi-condensed-latin-500-normal.woff2", "fonts/barlow-semi-condensed-latin-600-normal.woff2", "fonts/barlow-semi-condensed-latin-700-normal.woff2", "fonts/permanent-marker-latin-400-normal.woff2", "icons/apple-touch-icon.png", "icons/favicon-32.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/og-image.jpg", "vendor/chart.umd.js", "vendor/zxing.min.js"];
 
 self.addEventListener("install", event => {

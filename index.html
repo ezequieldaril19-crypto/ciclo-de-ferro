@@ -216,7 +216,39 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .btn:disabled{opacity:.45}
 .sets-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);text-align:center;font-weight:700}
 .hist{list-style:none;margin:0;padding:0}
-.hist li{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px dashed var(--line-2);font-size:14px}
+.hist li{border-top:1px dashed var(--line-2)}
+.hist li button{all:unset;cursor:pointer;display:flex;justify-content:space-between;gap:8px;padding:9px 0;font-size:14px;width:100%;box-sizing:border-box}
+.hist li button:focus-visible{outline:2px solid var(--blue-hot)}
+/* Calendário */
+.cal-h{display:flex;align-items:center;gap:8px}
+.cal-h strong{flex:1;text-align:center;font-family:var(--f-impact);font-weight:400;font-size:20px;letter-spacing:.05em;text-transform:uppercase}
+.cal-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:12px}
+.cal-stats div{background:#101016;padding:8px 6px;text-align:center;display:flex;flex-direction:column;gap:1px;min-width:0}
+.cal-stats b{font-family:var(--f-impact);font-weight:400;font-size:24px;line-height:1.1}
+.cal-stats span{font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;font-weight:700;line-height:1.2}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-top:12px}
+.cal-wd{font-size:11px;color:var(--dim);text-align:center;font-weight:700;padding-bottom:2px}
+.cal-d{height:42px;border:0;background:#15151c;color:var(--muted);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;position:relative;padding:0;line-height:1.05}
+.cal-d.out{visibility:hidden}
+.cal-d.future{opacity:.45}
+.cal-d.done{background:var(--red);color:var(--ink);box-shadow:0 0 10px rgba(227,23,44,.35)}
+.cal-d.started{box-shadow:inset 0 0 0 2px var(--red);color:var(--ink)}
+.cal-d small{font-family:var(--f-impact);font-size:10px;letter-spacing:.06em;opacity:.85}
+.cal-d.today::after{content:"";position:absolute;left:28%;right:28%;bottom:4px;height:3px;background:var(--blue-hot)}
+.cal-d.sel{outline:2px solid var(--ink);outline-offset:1px;z-index:1}
+/* Progressão de carga */
+.prog-list{list-style:none;margin:0;padding:0}
+.prog-list li{border-top:1px dashed var(--line-2)}
+.prog-list li:first-child{border-top:0}
+.prog-list button{all:unset;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) 72px auto;align-items:center;gap:10px;width:100%;box-sizing:border-box;padding:10px 0}
+.prog-list button:focus-visible{outline:2px solid var(--blue-hot)}
+.pr-n{font-size:15px;font-weight:600;min-width:0;overflow-wrap:anywhere}
+.pr-n small{display:block;font-size:12px;color:var(--muted);font-weight:500}
+.spark{width:72px;height:24px;display:block}
+.pr-v{text-align:right;font-size:14px;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.pr-v b,.pr-v span{font-size:13px}
+.pr-v .up{color:var(--ok)}
+.pr-v .down{color:var(--red-hot)}
 
 /* Números grandes */
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
@@ -1119,8 +1151,94 @@ function progressionHint(ex, k){
   if (allHit && best) return `${shortDate(last.k)}: ${esc(summary)}. <b>Bateu todas as reps: suba para ${fmt1(best + (isLegs(ex.n) ? 5 : 2.5))} kg.</b>`;
   return `${shortDate(last.k)}: ${esc(summary)}. Mantenha a carga até completar todas as séries.`;
 }
+/* ---- Calendário de treinos e progressão de carga ---- */
+const fmtKg = n => (Math.round((n||0)*100)/100).toLocaleString("pt-BR",{maximumFractionDigits:2});
+const MONTHS = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+function addMonths(mk, n){ const [y, m] = mk.split("-").map(Number); const d = new Date(y, m-1+n, 1); return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
+function bestOf(e){
+  // melhor carga da sessão; sem carga (peso do corpo), usa as repetições
+  let kg = 0, reps = 0;
+  e.sets.forEach(s => { const w = num(s.kg) || 0, r = num(s.r) || 0; if (w && (r || s.ok)) kg = Math.max(kg, w); if (r) reps = Math.max(reps, r); });
+  return {kg, reps};
+}
+function sessionLetter(wo){ const m = String(wo.name || "").match(/^([A-Z])\s*·/); return m ? m[1] : ""; }
+function calendarHTML(k){
+  const mk = ui.calMonth || monthOf(k), today = todayKey();
+  const [y, m] = mk.split("-").map(Number);
+  const first = new Date(y, m-1, 1), days = new Date(y, m, 0).getDate(), lead = first.getDay();
+  const ws = allWorkouts(), byDay = {}; ws.forEach(x => byDay[x.k] = x.wo);
+  const done = ws.filter(x => x.wo.done);
+  const inMonth = done.filter(x => monthOf(x.k) === mk).length;
+  const last4 = done.filter(x => x.k > addDays(today, -28) && x.k <= today).length;
+  const lastDone = done.filter(x => x.k <= today).pop();
+  const since = lastDone ? Math.round((dateOf(today) - dateOf(lastDone.k)) / 86400000) : null;
+  let cells = "";
+  for (let i = 0; i < lead; i++) cells += `<span class="cal-d out" aria-hidden="true"></span>`;
+  for (let dd = 1; dd <= days; dd++){
+    const key = `${mk}-${pad(dd)}`, wo = byDay[key];
+    const cls = ["cal-d", wo ? (wo.done ? "done" : "started") : "", key === today ? "today" : "", key === k ? "sel" : "", key > today ? "future" : ""].filter(Boolean).join(" ");
+    const lbl = wo ? `, ${wo.done ? "treino feito" : "treino não finalizado"}: ${wo.name}` : "";
+    cells += `<button class="${cls}" data-cal="${key}" aria-label="${dd} de ${MONTHS[m-1]}${esc(lbl)}">${dd}${wo && wo.done && sessionLetter(wo) ? `<small>${sessionLetter(wo)}</small>` : ""}</button>`;
+  }
+  return `<section class="panel">
+    <div class="cal-h"><button class="iconbtn" data-calm="-1" aria-label="Mês anterior">‹</button><strong>${MONTHS[m-1]} ${y}</strong><button class="iconbtn" data-calm="1" aria-label="Próximo mês">›</button></div>
+    <div class="cal-stats">
+      <div><b class="num">${inMonth}</b><span>${inMonth === 1 ? "treino" : "treinos"} no mês</span></div>
+      <div><b class="num">${last4}</b><span>em 4 semanas</span></div>
+      <div><b class="num">${since === null ? "–" : since === 0 ? "hoje" : since}</b><span>${since === null || since === 0 ? "último treino" : since === 1 ? "dia sem treinar" : "dias sem treinar"}</span></div>
+    </div>
+    <div class="cal-grid">${["D","S","T","Q","Q","S","S"].map(w => `<span class="cal-wd">${w}</span>`).join("")}${cells}</div>
+    <div class="legend" style="margin-top:10px"><span><i style="background:var(--red)"></i>Treino feito</span><span><i style="box-shadow:inset 0 0 0 2px var(--red)"></i>Não finalizado</span><span><i style="background:var(--blue-hot);height:3px;vertical-align:2px"></i>Hoje</span></div>
+    <p class="note" style="margin:6px 0 0">Toque num dia para ver ou registrar o treino dele.</p>
+  </section>`;
+}
+function sparkSVG(vals){
+  if (vals.length < 2) return `<svg class="spark" viewBox="0 0 72 24" aria-hidden="true"><circle cx="66" cy="12" r="3" fill="var(--blue-hot)"/></svg>`;
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+  const pts = vals.map((v, i) => [4 + i*(64/(vals.length-1)), 20 - (v - lo)/span*16]);
+  return `<svg class="spark" viewBox="0 0 72 24" aria-hidden="true"><polyline points="${pts.map(p => p.map(n => n.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${pts[pts.length-1][0].toFixed(1)}" cy="${pts[pts.length-1][1].toFixed(1)}" r="3" fill="var(--blue-hot)"/></svg>`;
+}
+function progressionHTML(k){
+  const mk = ui.calMonth || monthOf(k), [y, m] = mk.split("-").map(Number);
+  const done = allWorkouts().filter(x => x.wo.done);
+  const upTo = done.filter(x => monthOf(x.k) <= mk);
+  const per = {};
+  upTo.forEach(x => x.wo.ex.forEach(e => {
+    const b = bestOf(e); if (!b.kg && !b.reps) return;
+    (per[e.n] = per[e.n] || []).push({k:x.k, ...b});
+  }));
+  const rows = Object.entries(per).map(([n, list]) => {
+    const month = list.filter(p => monthOf(p.k) === mk);
+    if (!month.length) return null;
+    const useKg = list.some(p => p.kg);
+    const v = p => useKg ? p.kg : p.reps;
+    const before = list.filter(p => monthOf(p.k) < mk && (!useKg || p.kg)).pop();
+    const mv = month.filter(p => !useKg || p.kg);
+    if (!mv.length) return null;
+    const base = mv.length > 1 ? mv[0] : before;
+    const cur = mv[mv.length-1];
+    const delta = base ? v(cur) - v(base) : null;
+    const series = list.filter(p => !useKg || p.kg).slice(-8).map(v);
+    return {n, count: month.length, unit: useKg ? "kg" : "reps", base: base ? v(base) : null, cur: v(cur), delta, series, ref: mv.length > 1 ? "" : (before ? "vs. treino anterior" : "")};
+  }).filter(Boolean).sort((a, b) => b.count - a.count || a.n.localeCompare(b.n));
+  const body = rows.length ? `<ul class="prog-list">${rows.map(r => {
+      const dl = r.delta === null ? `<span class="muted">1º registro</span>` : r.delta > 0 ? `<b class="up">+${fmtKg(r.delta)}</b>` : r.delta < 0 ? `<b class="down">${fmtKg(r.delta)}</b>` : `<span class="muted">mantida</span>`;
+      return `<li><button data-pex="${esc(r.n)}"><span class="pr-n">${esc(r.n)}<small>${r.count} ${r.count === 1 ? "treino" : "treinos"} no mês${r.ref ? " · " + r.ref : ""}</small></span>${sparkSVG(r.series)}<span class="pr-v num">${r.base !== null && r.delta !== null ? `${fmtKg(r.base)} → ` : ""}${fmtKg(r.cur)} ${r.unit}${dl}</span></button></li>`;
+    }).join("")}</ul><p class="note" style="margin:8px 0 0">Melhor carga de cada treino (ou repetições, em exercícios com o peso do corpo). Toque num exercício para ver o gráfico completo.</p>`
+    : `<p class="note" style="margin:0">Nenhum treino finalizado em ${MONTHS[m-1]}. Finalize um treino com as cargas anotadas para acompanhar a progressão aqui.</p>`;
+  return secH("Progressão de carga", `${MONTHS[m-1]}`, false) + `<section class="panel">${body}</section>`;
+}
+function bindCalendar(){
+  view.querySelectorAll("[data-cal]").forEach(b => b.onclick = () => { ui.day = b.dataset.cal; ui.calMonth = monthOf(b.dataset.cal); render(); window.scrollTo({top:0, behavior:"smooth"}); });
+  view.querySelectorAll("[data-calm]").forEach(b => b.onclick = () => { ui.calMonth = addMonths(ui.calMonth || monthOf(ui.day), +b.dataset.calm); render(); document.getElementById("calSec")?.scrollIntoView({block:"start"}); });
+  view.querySelectorAll("[data-pex]").forEach(b => b.onclick = () => { ui.exPick = b.dataset.pex; ui.tab = "evolucao"; render(); window.scrollTo({top:0}); });
+  view.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => { ui.day = b.dataset.jump; ui.calMonth = null; render(); window.scrollTo({top:0, behavior:"smooth"}); });
+}
+
 function renderTreino(){
   const k = ui.day, d = getDay(k, false), prog = PROGRAMS[S.program], wo = d && d.wo;
+  if (ui.calMonth && ui.calDay !== k){ ui.calMonth = null; }
+  ui.calDay = k;
   let html = dateBar(k, "Treino de hoje");
   if (!wo){
     const preview = newSession(k);
@@ -1151,13 +1269,16 @@ function renderTreino(){
       ${wo.ex.length ? `<button class="btn ghost wide" id="saveTpl" style="margin-top:10px">${wo.tpl ? "Salvar mudanças no meu treino" : "Salvar como meu treino"}</button>` : ""}
       <div id="discardConfirm" hidden style="margin-top:10px"><p class="note warn" style="margin:0 0 8px">Descartar apaga o registro deste treino.</p><div class="row"><button class="btn grow" id="discardYes">Sim, descartar</button><button class="btn ghost" id="discardNo">Cancelar</button></div></div></section>`;
   }
+  html += `<h2 class="sec b" id="calSec"><span class="t">Calendário</span><small>dias treinados</small></h2>` + calendarHTML(k);
+  html += progressionHTML(k);
   const hist = allWorkouts().filter(x => x.wo.done).slice(-8).reverse();
-  html += secH("Histórico", "", true) + `<section class="panel">${hist.length ? `<ul class="hist">${hist.map(x => {
+  html += secH("Histórico", "últimos treinos", true) + `<section class="panel">${hist.length ? `<ul class="hist">${hist.map(x => {
       const vol = x.wo.ex.reduce((a,e) => a + e.sets.reduce((b,s) => b + (num(s.kg)||0)*(num(s.r)||0), 0), 0);
-      return `<li><span>${shortDate(x.k)} · ${esc(x.wo.name)}</span><span class="num muted">${r0(vol).toLocaleString("pt-BR")} kg</span></li>`; }).join("")}</ul><p class="note" style="margin:8px 0 0">À direita: volume total do treino (carga × repetições).</p>`
+      return `<li><button data-jump="${x.k}"><span>${shortDate(x.k)} · ${esc(x.wo.name)}</span><span class="num muted">${r0(vol).toLocaleString("pt-BR")} kg</span></button></li>`; }).join("")}</ul><p class="note" style="margin:8px 0 0">À direita: volume total do treino (carga × repetições). Toque para abrir o treino.</p>`
     : `<p class="note" style="margin:0">Seus treinos concluídos aparecem aqui, com o volume de cada um.</p>`}</section>`;
   view.innerHTML = html;
   bindDateBar();
+  bindCalendar();
   $("#chgProg")?.addEventListener("click", () => { ui.tab = "ajustes"; ui.scrollTo = "progSec"; render(); });
   $("#startWo")?.addEventListener("click", () => { const dd = getDay(k, true); dd.wo = newSession(k); touchDay(k); render(); });
   $("#freeWo")?.addEventListener("click", () => {
@@ -1507,7 +1628,7 @@ function toast(msg){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "11/10/2026 09:44";
+const APP_BUILD = "11/10/2026 10:02";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
