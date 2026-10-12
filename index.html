@@ -189,6 +189,12 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{background:var(--panel-2);border:1px solid var(--line-2);padding:6px 10px;font-size:14px}
 .chip[aria-pressed=true]{background:var(--red);border-color:var(--red)}
+.seg.modes{width:100%}
+.seg.modes button{flex:1;padding:10px 0;font-size:14px}
+.stepper{display:grid;grid-template-columns:52px 1fr 52px;gap:8px;align-items:center}
+.stepper .iconbtn{width:52px;height:52px;font-size:26px}
+.stepper input{text-align:center;font-family:var(--f-impact);font-size:28px;padding:6px 8px;height:52px}
+#uNewBox summary{font-size:14px}
 .macro-prev{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center}
 .macro-prev div{background:#08080b;border:1px solid var(--line);padding:8px 4px}
 .macro-prev b{display:block;font-family:var(--f-impact);font-weight:400;font-size:22px;letter-spacing:.02em}
@@ -430,7 +436,7 @@ const DEFAULT_SETTINGS = () => ({
   manualKcal:null,
   week:["B","A","M","A","B","A","M"],
   days:3, level:"ini", program:"golden6",
-  meals: DEFAULT_MEALS.map(m => ({...m})), saved:[], customEx:[], myWo:[],
+  meals: DEFAULT_MEALS.map(m => ({...m})), saved:[], customEx:[], myWo:[], units:{}, lastUnit:{},
   custom:[], recent:[], t:0
 });
 let S = DEFAULT_SETTINGS();
@@ -444,6 +450,8 @@ function mergeSettings(raw){
   if (!Array.isArray(s.saved)) s.saved = [];
   if (!Array.isArray(s.customEx)) s.customEx = [];
   if (!Array.isArray(s.myWo)) s.myWo = [];
+  if (!s.units || typeof s.units !== "object") s.units = {};
+  if (!s.lastUnit || typeof s.lastUnit !== "object") s.lastUnit = {};
   return s;
 }
 function loadLocal(){
@@ -631,6 +639,112 @@ function searchFoods(q){
   hits.sort((a,b) => (b.mine?1:0)-(a.mine?1:0) || pop(b)-pop(a) || (b.nn.startsWith(first)?1:0)-(a.nn.startsWith(first)?1:0) || a.n.length-b.n.length);
   return hits.slice(0,60);
 }
+/* ================= Medidas caseiras (valores aproximados) ================= */
+const MEASURES = [
+  [/^ovo, de codorna/, [["unidade",10]]],
+  [/^ovo, de galinha, clara/, [["clara",33]]],
+  [/^ovo, de galinha, gema/, [["gema",17]]],
+  [/^ovo, de galinha, inteiro/, [["unidade",50]]],
+  [/^omelete/, [["porção (2 ovos)",110]]],
+  [/^pao, trigo, frances|^pao, trigo, sovado/, [["unidade",50]]],
+  [/^pao, de queijo/, [["unidade média",30]]],
+  [/^pao, /, [["fatia",25]]],
+  [/^torrada/, [["unidade",10]]],
+  [/^tapioca/, [["unidade",70]]],
+  [/^cuscuz/, [["porção média",100]]],
+  [/^queijo, mozarela|^queijo, prato|^queijo, pasteurizado/, [["fatia",20]]],
+  [/^queijo, minas/, [["fatia média",30]]],
+  [/^queijo, parmesao/, [["colher de sopa",10]]],
+  [/^queijo, requeijao/, [["colher de sopa",30]]],
+  [/^queijo, ricota/, [["colher de sopa",25]]],
+  [/^queijo, petit suisse/, [["pote",45]]],
+  [/^presunto|^mortadela/, [["fatia",15]]],
+  [/^leite, .*po$|^achocolatado/, [["colher de sopa",15]]],
+  [/^leite, condensado/, [["colher de sopa",20]]],
+  [/^leite, de coco/, [["colher de sopa",15]]],
+  [/^leite/, [["copo (200 ml)",206],["xícara (240 ml)",247]]],
+  [/^iogurte/, [["pote (170 g)",170]]],
+  [/^manteiga|^margarina/, [["colher de chá",5],["colher de sopa",14]]],
+  [/^azeite|^oleo/, [["colher de sopa",13],["colher de chá",4]]],
+  [/^acucar/, [["colher de chá",5],["colher de sopa",12]]],
+  [/^mel, /, [["colher de sopa",20]]],
+  [/^cafe, infusao/, [["xícara (50 ml)",50],["caneca (150 ml)",150]]],
+  [/^refrigerante/, [["lata (350 ml)",350],["copo (200 ml)",200]]],
+  [/^laranja, .*suco|^tangerina, .*suco/, [["copo (200 ml)",200]]],
+  [/^banana/, [["unidade média",65]]],
+  [/^maca, /, [["unidade média",130]]],
+  [/^laranja|^tangerina/, [["unidade média",140]]],
+  [/^pera, /, [["unidade média",130]]],
+  [/^kiwi/, [["unidade",75]]],
+  [/^morango/, [["unidade",12]]],
+  [/^uva, .*crua/, [["unidade",6]]],
+  [/^mamao, papaia/, [["meia unidade",150]]],
+  [/^mamao, formosa/, [["fatia média",150]]],
+  [/^abacaxi, cru/, [["fatia",75]]],
+  [/^melancia/, [["fatia",200]]],
+  [/^abacate/, [["colher de sopa",30]]],
+  [/^arroz, .*cozido/, [["colher de sopa cheia",25],["colher de servir",45]]],
+  [/^feijao, .*cozido/, [["concha média",100],["colher de sopa",20]]],
+  [/^aveia/, [["colher de sopa",15]]],
+  [/^cereal matinal/, [["xícara",30]]],
+  [/^macarrao, instantaneo/, [["pacote",80]]],
+  [/^frango, peito/, [["filé médio",100]]],
+  [/^frango, (coxa|sobrecoxa)/, [["unidade",75]]],
+  [/^frango, file/, [["filé",100]]],
+  [/^carne, bovina, .*moido/, [["colher de sopa",25]]],
+  [/^carne, bovina, almondega/, [["unidade",30]]],
+  [/^carne, bovina/, [["bife médio",100]]],
+  [/^(salmao|pescada|merluza|corvina|cacao|linguado|bacalhau|peixe)/, [["filé médio",100]]],
+  [/^sardinha, conserva/, [["lata (drenada)",84]]],
+  [/^atum, conserva/, [["lata (drenada)",120]]],
+  [/^linguica/, [["gomo",60]]],
+  [/^batata, doce/, [["unidade média",150]]],
+  [/^batata, inglesa, (cozida|crua)/, [["unidade média",130]]],
+  [/^batata, inglesa, frita/, [["porção pequena",80]]],
+  [/^mandioca, (cozida|frita)/, [["pedaço médio",80]]],
+  [/^cenoura/, [["unidade média",100],["colher de sopa",12]]],
+  [/^brocolis/, [["ramo",25]]],
+  [/^tomate, com semente/, [["unidade média",100]]],
+  [/^alface/, [["folha",10]]],
+  [/^amendoim/, [["colher de sopa",15]]],
+  [/^castanha-de-caju/, [["unidade",2.5],["punhado",25]]],
+  [/^castanha-do-brasil/, [["unidade",4]]],
+  [/^biscoito, salgado/, [["unidade",6]]],
+  [/^biscoito, doce, maisena/, [["unidade",5]]],
+  [/^biscoito, doce, recheado/, [["unidade",15]]],
+  [/^biscoito, .*wafer/, [["unidade",8]]],
+  [/^biscoito, polvilho/, [["unidade",3]]],
+  [/^chocolate/, [["quadradinho",5],["barra (25 g)",25]]],
+  [/^bolo, pronto/, [["fatia",60]]]
+];
+function unitsFor(food){
+  if (!food) return [];
+  const out = [];
+  (S.units[food.key] || []).forEach(u => out.push({n:u.n, g:u.g, mine:true}));
+  const cu = String(food.key || "").startsWith("c") && S.custom.find(c => "c" + c.id === food.key);
+  if (cu && cu.por && Math.abs(cu.por - 100) > 0.01) out.push({n:`porção do rótulo`, g:cu.por});
+  const nn = food.nn || norm(food.n);
+  const rule = MEASURES.find(([re]) => re.test(nn));
+  if (rule) rule[1].forEach(([n, g]) => { if (!out.some(o => o.n === n)) out.push({n, g}); });
+  return out;
+}
+function pluralWord(w){
+  if (/ão$/.test(w)) return w.replace(/ão$/, "ões");
+  if (/[rz]$/.test(w)) return w + "es";
+  if (/m$/.test(w)) return w.replace(/m$/, "ns");
+  if (/l$/.test(w)) return w.replace(/l$/, "is");
+  if (/s$/.test(w)) return w;
+  return w + "s";
+}
+function unitName(n, q){
+  if (q <= 1) return n;
+  const cut = n.search(/ de | \(/);
+  const head = cut >= 0 ? n.slice(0, cut) : n, tail = cut >= 0 ? n.slice(cut) : "";
+  return head.split(" ").map(pluralWord).join(" ") + tail;
+}
+const fmtQ = q => (Math.round(q*100)/100).toLocaleString("pt-BR", {maximumFractionDigits:2});
+const amountText = i => i.u ? `${fmtQ(i.u.q)} ${unitName(i.u.n, i.u.q)} · ${fmt1(i.g)} g` : `${fmt1(i.g)} g`;
+
 function savedTotals(sv){ return sv.items.reduce((t,i) => { const m = itemMacros(i); t.kcal+=m.kcal; t.p+=m.p; t.c+=m.c; t.f+=m.f; return t; }, {kcal:0,p:0,c:0,f:0}); }
 function searchSaved(q){ const words = norm(q).split(/[\s,]+/).filter(Boolean); return S.saved.filter(s => words.every(w => norm(s.n).includes(w))); }
 
@@ -788,7 +902,7 @@ function renderHoje(){
     const mk = its.reduce((a,i) => a + itemMacros(i).kcal, 0);
     html += `<section class="panel"><div class="meal-h"><h3>${esc(sec.n)}</h3><span class="mk num">${its.length ? r0(mk)+" kcal" : ""}</span>
       ${sec.menu ? `<button class="add" data-add="${sec.id}" aria-label="Adicionar em ${esc(sec.n)}">+ Add</button><button class="dots" data-menu="${sec.id}" aria-label="Opções de ${esc(sec.n)}">⋮</button>` : ""}</div>`;
-    html += its.length ? `<ul class="items">${its.map(i => { const m = itemMacros(i); return `<li><button data-edit="${i.id}"><span class="nm">${esc(i.n)}<small class="num">${fmt1(i.g)} g · P ${r0(m.p)} · C ${r0(m.c)} · G ${r0(m.f)}</small></span><span class="kc num">${r0(m.kcal)} kcal</span></button></li>`; }).join("")}</ul>` : `<div class="empty-meal">Nada registrado.</div>`;
+    html += its.length ? `<ul class="items">${its.map(i => { const m = itemMacros(i); return `<li><button data-edit="${i.id}"><span class="nm">${esc(i.n)}<small class="num">${esc(amountText(i))} · P ${r0(m.p)} · C ${r0(m.c)} · G ${r0(m.f)}</small></span><span class="kc num">${r0(m.kcal)} kcal</span></button></li>`; }).join("")}</ul>` : `<div class="empty-meal">Nada registrado.</div>`;
     html += `</section>`;
   });
   html += `<button class="newmeal" id="newMeal">+ Nova refeição</button></div>`;
@@ -867,7 +981,7 @@ function openMealMenu(id){
     <div id="rmConfirm" hidden><p class="note warn" style="margin:0 0 8px">Ela some de todos os dias. Alimentos já registrados nela continuam salvos, em "Outros".</p><div class="row"><button class="btn grow" id="rmYes">Remover</button><button class="btn ghost" id="rmNo">Cancelar</button></div></div>`);
   $("#svOk")?.addEventListener("click", () => {
     const n = $("#svName").value.trim() || meal.n;
-    S.saved.unshift({id:uid(), n, items: its.map(i => ({key:i.key, n:i.n, g:i.g, k:i.k, p:i.p, c:i.c, f:i.f}))});
+    S.saved.unshift({id:uid(), n, items: its.map(i => ({key:i.key, n:i.n, g:i.g, k:i.k, p:i.p, c:i.c, f:i.f, ...(i.u ? {u:{...i.u}} : {})}))});
     touchSettings(); closeSheet(); toast("Refeição pronta salva");
   });
   $("#rnOk").onclick = () => { const n = $("#rnName").value.trim(); if (!n) return; meal.n = n; touchSettings(); closeSheet(); render(); toast("Nome alterado"); };
@@ -885,7 +999,7 @@ function openFoodSheet({meal, edit}){
   let grams = edit ? edit.g : 100;
   function addSaved(sv){
     const d = getDay(ui.day, true);
-    sv.items.forEach(i => d.items.push({id:uid(), key:i.key, n:i.n, g:i.g, k:i.k, p:i.p, c:i.c, f:i.f, m:mealId}));
+    sv.items.forEach(i => d.items.push({id:uid(), key:i.key, n:i.n, g:i.g, k:i.k, p:i.p, c:i.c, f:i.f, m:mealId, ...(i.u ? {u:{...i.u}} : {})}));
     touchDay(ui.day); closeSheet(); render(); toast(`${sv.n}: ${sv.items.length} itens`);
   }
   function searchView(){
@@ -941,30 +1055,96 @@ function openFoodSheet({meal, edit}){
     };
   }
   function qtyView(){
-    const quick = [30,50,100,150,200,250];
+    const quick = [10,20,30,50,100,150,200];
     const opts = S.meals.slice(); if (!opts.some(m => m.id === mealId)) opts.push({id:mealId, n:mealName(mealId)});
+    let units = unitsFor(food);
+    const last = food.key && S.lastUnit[food.key];
+    // começa em unidades quando o alimento tem medida caseira (ou quando foi assim da última vez)
+    let mode, unit, qty;
+    if (edit && edit.u){ mode = "u"; unit = units.find(u => u.n === edit.u.n) || {n:edit.u.n, g:edit.u.g}; qty = edit.u.q; if (!units.some(u => u.n === unit.n)) units.unshift(unit); }
+    else if (edit){ mode = "g"; }
+    else if (last && last.mode === "g"){ mode = "g"; grams = last.g || grams; }
+    else if (units.length){ mode = "u"; unit = (last && units.find(u => u.n === last.n)) || units[0]; qty = (last && last.n === unit.n && last.q) || 1; }
+    else mode = "g";
+    if (!unit && units.length){ unit = units[0]; qty = 1; }
     openSheet(`${sheetHead(`<span style="font-size:22px">${esc(food.n)}</span>`)}
-      <div class="grid2"><div class="field"><label for="g">Quantidade (g)</label><input id="g" type="text" inputmode="decimal" value="${fmt1(grams)}"></div>
-      <div class="field"><label for="ml">Refeição</label><select id="ml">${opts.map(m => `<option value="${m.id}" ${m.id===mealId?"selected":""}>${esc(m.n)}</option>`).join("")}</select></div></div>
-      <div class="chips">${quick.map(g => `<button class="chip" data-g="${g}">${g} g</button>`).join("")}</div>
+      <div class="seg modes" role="group" aria-label="Medir por"><button data-mode="u">Unidades</button><button data-mode="g">Gramas</button></div>
+      <div id="uPanel">
+        <div class="chips" id="uList"></div>
+        <div class="stepper"><button class="iconbtn" id="qMinus" aria-label="Menos">−</button><input id="uq" type="text" inputmode="decimal" aria-label="Quantidade"><button class="iconbtn" id="qPlus" aria-label="Mais">+</button></div>
+        <p class="note" id="uEq" style="margin:0;text-align:center"></p>
+        <details id="uNewBox"><summary>+ Criar medida para este alimento</summary>
+          <div class="grid2" style="margin-top:8px"><div class="field"><label for="unName">Nome</label><input id="unName" type="text" maxlength="30" placeholder="Ex.: unidade, fatia, pote"></div>
+          <div class="field"><label for="unG">Quanto pesa (g)</label><input id="unG" type="text" inputmode="decimal" placeholder="Ex.: 50"></div></div>
+          <button class="btn ghost wide" id="unOk" style="margin-top:8px">Criar medida</button>
+          <p class="note" style="margin:6px 0 0">Pese uma vez na balança ou veja no rótulo. O app guarda para as próximas vezes.</p></details>
+      </div>
+      <div id="gPanel">
+        <div class="field"><label for="g">Quantidade em gramas</label><input id="g" type="text" inputmode="decimal" value="${fmt1(grams)}"></div>
+        <div class="chips">${quick.map(g => `<button class="chip" data-g="${g}">${g} g</button>`).join("")}</div>
+        <p class="note" style="margin:0">Toque num atalho ou digite qualquer valor, como 5 ou 12,5.</p>
+      </div>
+      <div class="field"><label for="ml">Refeição</label><select id="ml">${opts.map(m => `<option value="${m.id}" ${m.id===mealId?"selected":""}>${esc(m.n)}</option>`).join("")}</select></div>
       <div class="macro-prev" id="prev"></div>
       <button class="btn wide" id="ok">${edit ? "Salvar alteração" : "Adicionar"}</button>
       ${edit ? `<button class="btn ghost wide" id="del" style="color:var(--red-hot)">Remover da refeição</button>` : `<button class="btn ghost wide" id="back">Voltar para a busca</button>`}`);
-    const gi = $("#g");
-    const upd = () => {
-      const g = num(gi.value) || 0, x = g/100;
-      $("#prev").innerHTML = `<div><b>${r0(food.k*x)}</b><span>kcal</span></div><div><b style="color:var(--blue-hot)">${fmt1(food.p*x)}</b><span>Prot</span></div><div><b>${fmt1(food.c*x)}</b><span>Carbo</span></div><div><b style="color:var(--red-hot)">${fmt1(food.f*x)}</b><span>Gord</span></div>`;
-      document.querySelectorAll("[data-g]").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.g === g)));
+    const gi = $("#g"), qi = $("#uq");
+    if (qty) qi.value = fmtQ(qty);
+    const curGrams = () => mode === "u" ? (unit ? (num(qi.value) || 0) * unit.g : 0) : (num(gi.value) || 0);
+    const drawUnits = () => {
+      $("#uList").innerHTML = units.map((u, i) => `<button class="chip" data-ui="${i}" aria-pressed="${unit && u.n === unit.n}">${esc(u.n)} · ${fmtQ(u.g)} g</button>`).join("");
+      $("#uList").querySelectorAll("[data-ui]").forEach(b => b.onclick = () => { unit = units[+b.dataset.ui]; drawUnits(); upd(); });
+      const has = units.length > 0;
+      $("#uList").hidden = !has; document.querySelector(".stepper").hidden = !has; $("#uEq").hidden = !has;
+      $("#uNewBox").open = !has;
     };
-    gi.oninput = upd; upd();
+    const upd = () => {
+      const g = curGrams(), x = g/100;
+      document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+      $("#uPanel").hidden = mode !== "u"; $("#gPanel").hidden = mode !== "g";
+      if (mode === "u" && unit){ const q = num(qi.value) || 0; $("#uEq").textContent = q ? `${fmtQ(q)} ${unitName(unit.n, q)} = ${fmt1(g)} g${unit.mine ? "" : " (aproximado)"}` : "Informe a quantidade"; }
+      $("#prev").innerHTML = `<div><b>${r0(food.k*x)}</b><span>kcal</span></div><div><b style="color:var(--blue-hot)">${fmt1(food.p*x)}</b><span>Prot</span></div><div><b>${fmt1(food.c*x)}</b><span>Carbo</span></div><div><b style="color:var(--red-hot)">${fmt1(food.f*x)}</b><span>Gord</span></div>`;
+      document.querySelectorAll("[data-g]").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.g === (num(gi.value) || 0))));
+    };
+    document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+      const g = curGrams();
+      mode = b.dataset.mode;
+      if (mode === "g" && g) gi.value = fmt1(g);
+      if (mode === "u" && unit && !num(qi.value)) qi.value = "1";
+      upd();
+    });
+    const step = d => { const q = Math.max(0, (num(qi.value) || 0) + d); qi.value = fmtQ(q < 0.5 && d < 0 ? 0.5 : q); upd(); };
+    $("#qMinus").onclick = () => step((num(qi.value) || 0) <= 1 ? -0.5 : -1);
+    $("#qPlus").onclick = () => step((num(qi.value) || 0) < 1 ? 0.5 : 1);
+    qi.oninput = upd; gi.oninput = upd;
     document.querySelectorAll("[data-g]").forEach(b => b.onclick = () => { gi.value = b.dataset.g; upd(); });
+    $("#unOk").onclick = () => {
+      const n = $("#unName").value.trim().toLowerCase(), g = num($("#unG").value);
+      if (!n || !g || g <= 0){ toast("Informe o nome e o peso da medida"); return; }
+      const list = (S.units[food.key] = (S.units[food.key] || []).filter(u => u.n !== n));
+      list.unshift({n, g:r1(g)}); touchSettings();
+      units = unitsFor(food); unit = units.find(u => u.n === n); qi.value = "1"; mode = "u";
+      $("#unName").value = ""; $("#unG").value = ""; $("#uNewBox").open = false;
+      drawUnits(); upd(); toast("Medida criada");
+    };
+    drawUnits(); upd();
     $("#ok").onclick = () => {
-      const g = num(gi.value);
-      if (!g || g <= 0){ toast("Informe a quantidade em gramas"); return; }
+      const g = curGrams();
+      if (!g || g <= 0){ toast(mode === "u" ? "Informe quantas unidades" : "Informe a quantidade em gramas"); return; }
       const k = ui.day, d = getDay(k, true), m = $("#ml").value;
-      if (edit){ const it = d.items.find(i => i.id === edit.id); if (it){ it.g = r1(g); it.m = m; } }
-      else d.items.push({id:uid(), key:food.key, n:food.n, g:r1(g), k:food.k, p:food.p, c:food.c, f:food.f, m});
-      if (food.key) S.recent = [food.key].concat(S.recent.filter(x => x !== food.key)).slice(0,20);
+      const u = mode === "u" && unit ? {n:unit.n, q:num(qi.value), g:unit.g} : null;
+      if (edit){
+        const it = d.items.find(i => i.id === edit.id);
+        if (it){ it.g = r1(g); it.m = m; if (u) it.u = u; else delete it.u; }
+      } else {
+        const it = {id:uid(), key:food.key, n:food.n, g:r1(g), k:food.k, p:food.p, c:food.c, f:food.f, m};
+        if (u) it.u = u;
+        d.items.push(it);
+      }
+      if (food.key){
+        S.recent = [food.key].concat(S.recent.filter(x => x !== food.key)).slice(0,20);
+        S.lastUnit[food.key] = u ? {mode:"u", n:u.n, q:u.q} : {mode:"g", g:r1(g)};
+      }
       touchDay(k); touchSettings(); closeSheet(); render();
       toast(edit ? "Alteração salva" : "Adicionado");
     };
@@ -1037,6 +1217,7 @@ function openFoodSheet({meal, edit}){
       const item = {id:uid(), n, k:r1(kc*x), p:r1(p*x), c:r1(c*x), f:r1(f*x)};
       if (bc){ S.custom = S.custom.filter(cu => cu.bc !== bc); item.bc = bc; }
       if (servingG) item.por = r1(servingG);
+      else if (Math.abs(por - 100) > 0.01) item.por = r1(por);
       S.custom.unshift(item); touchSettings();
       food = {key:"c"+item.id, n, k:item.k, p:item.p, c:item.c, f:item.f}; grams = servingG || por; qtyView();
     };
@@ -1628,7 +1809,7 @@ function toast(msg){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "11/10/2026 10:02";
+const APP_BUILD = "12/10/2026 09:33";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
