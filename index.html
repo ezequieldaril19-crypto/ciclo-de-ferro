@@ -203,6 +203,10 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .seg.modes button{flex:1;padding:10px 0;font-size:14px}
 .seg.scope{width:100%}
 .seg.scope button{flex:1;padding:9px 2px;font-size:12px}
+.card-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
+.card-prev{display:block;max-width:100%;max-height:52vh;width:auto;box-shadow:0 10px 30px rgba(0,0,0,.6);border:1px solid var(--line-2)}
+.card-prev:not([src]){display:none}
+.card-prev.clear{background:repeating-conic-gradient(#1b1b22 0 25%,#2a2a33 0 50%) 0 0/24px 24px}
 .tag-rec{display:inline-block;background:var(--blue);color:#fff;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:1px 5px;vertical-align:2px}
 .rc-items li .add{padding:5px 9px 4px;font-size:13px}
 .stepper{display:grid;grid-template-columns:52px 1fr 52px;gap:8px;align-items:center}
@@ -1776,6 +1780,7 @@ function renderTreino(){
     });
     if (!wo.done) html += `<button class="newmeal" id="addEx" style="margin-top:16px">+ Adicionar exercício</button>`;
     html += `<div class="row" style="margin-top:16px">${wo.done ? `<button class="btn ghost grow" id="reopen">Reabrir para editar</button>` : `<button class="btn grow" id="finish" ${wo.ex.length ? "" : "disabled"}>Finalizar treino</button>`}<button class="btn ghost" id="discard">Descartar</button></div>
+      ${wo.done ? `<button class="btn blue wide" id="shareWo" style="margin-top:10px">Compartilhar treino</button>` : ""}
       ${wo.ex.length ? `<button class="btn ghost wide" id="saveTpl" style="margin-top:10px">${wo.tpl ? "Salvar mudanças no meu treino" : "Salvar como meu treino"}</button>` : ""}
       <div id="discardConfirm" hidden style="margin-top:10px"><p class="note warn" style="margin:0 0 8px">Descartar apaga o registro deste treino.</p><div class="row"><button class="btn grow" id="discardYes">Sim, descartar</button><button class="btn ghost" id="discardNo">Cancelar</button></div></div></section>`;
   }
@@ -1790,13 +1795,13 @@ function renderTreino(){
   bindDateBar();
   bindCalendar();
   $("#chgProg")?.addEventListener("click", () => { ui.tab = "ajustes"; ui.scrollTo = "progSec"; render(); });
-  $("#startWo")?.addEventListener("click", () => { const dd = getDay(k, true); dd.wo = newSession(k); touchDay(k); render(); });
+  $("#startWo")?.addEventListener("click", () => { const dd = getDay(k, true); dd.wo = newSession(k); dd.wo.t0 = Date.now(); touchDay(k); render(); });
   $("#freeWo")?.addEventListener("click", () => {
-    const dd = getDay(k, true); dd.wo = {prog:"livre", name:"Treino livre", done:false, ex:[]}; touchDay(k); render(); openExercisePicker(k, dd.wo);
+    const dd = getDay(k, true); dd.wo = {prog:"livre", name:"Treino livre", done:false, ex:[], t0:Date.now()}; touchDay(k); render(); openExercisePicker(k, dd.wo);
   });
   view.querySelectorAll("[data-tpl]").forEach(b => b.onclick = () => {
     const t = S.myWo.find(x => x.id === b.dataset.tpl); if (!t) return;
-    const dd = getDay(k, true); dd.wo = {prog:"meu", tpl:t.id, name:t.name, done:false, ex:t.ex.map(e => exItem(e.n, e.sets, e.reps, k))};
+    const dd = getDay(k, true); dd.wo = {prog:"meu", tpl:t.id, name:t.name, done:false, t0:Date.now(), ex:t.ex.map(e => exItem(e.n, e.sets, e.reps, k))};
     touchDay(k); render();
   });
   view.querySelectorAll("[data-tplrm]").forEach(b => b.onclick = () => {
@@ -1819,18 +1824,357 @@ function renderTreino(){
     let saveT;
     view.querySelectorAll("input[data-f]").forEach(inp => inp.addEventListener("input", () => {
       wo.ex[+inp.dataset.ei].sets[+inp.dataset.si][inp.dataset.f] = inp.value.replace(",", ".");
+      if (!wo.ta && wo.t0) wo.ta = Date.now();
       clearTimeout(saveT); saveT = setTimeout(() => touchDay(k), 600);
     }));
     view.querySelectorAll(".ck").forEach(b => b.onclick = () => {
       const s = wo.ex[+b.dataset.ei].sets[+b.dataset.si];
-      s.ok = !s.ok; b.setAttribute("aria-pressed", String(s.ok)); touchDay(k);
+      s.ok = !s.ok; b.setAttribute("aria-pressed", String(s.ok)); if (!wo.ta && wo.t0) wo.ta = Date.now(); touchDay(k);
     });
-    $("#finish")?.addEventListener("click", () => { wo.done = true; touchDay(k); toast("Treino registrado"); render(); });
+    $("#finish")?.addEventListener("click", () => { wo.done = true; wo.t1 = Date.now(); touchDay(k); render(); openWorkoutCard(k); toast("Treino registrado"); });
+    $("#shareWo")?.addEventListener("click", () => openWorkoutCard(k));
     $("#reopen")?.addEventListener("click", () => { wo.done = false; touchDay(k); render(); });
     $("#discard").onclick = () => { $("#discardConfirm").hidden = false; };
     $("#discardNo").onclick = () => { $("#discardConfirm").hidden = true; };
     $("#discardYes").onclick = () => { delete getDay(k,true).wo; touchDay(k); render(); };
   }
+}
+
+/* ================= Cartão do treino (para Stories, Feed e Direct) ================= */
+function woStart(wo){
+  // começa ao tocar em "Começar"; se a primeira série veio bem depois, conta a partir dela
+  if (!wo.t0) return null;
+  return wo.ta && wo.ta - wo.t0 > 20*60000 ? wo.ta - 3*60000 : wo.t0;
+}
+function woDuration(k, wo){
+  if (wo.dur > 0) return wo.dur;
+  const st = woStart(wo);
+  if (!st || !wo.t1 || keyOf(new Date(st)) !== k) return null;
+  const m = Math.round((wo.t1 - st) / 60000);
+  return m >= 5 && m <= 300 ? m : null;
+}
+function workoutStats(k, wo){
+  const prev = allWorkouts().filter(x => x.wo.done && x.k < k);
+  let vol = 0, sets = 0, reps = 0;
+  const ex = wo.ex.map(e => {
+    let ev = 0, es = 0, er = 0, best = null, topR = 0;
+    e.sets.forEach(s => {
+      const w = num(s.kg) || 0, r = num(s.r) || 0;
+      if (!(r || s.ok)) return;
+      es++; er += r; ev += w*r; topR = Math.max(topR, r);
+      if (w && (!best || w > best.kg || (w === best.kg && r > best.r))) best = {kg:w, r};
+    });
+    let prevBest = 0;
+    prev.forEach(x => x.wo.ex.forEach(pe => { if (pe.n === e.n) prevBest = Math.max(prevBest, bestOf(pe).kg); }));
+    const pr = best && prevBest > 0 && best.kg > prevBest ? best.kg - prevBest : 0;
+    vol += ev; sets += es; reps += er;
+    return {n:e.n, es, er, best, topR, pr};
+  }).filter(x => x.es);
+  const d0 = dateOf(k), wk = Array.from({length:7}, (_, i) => addDays(k, i - d0.getDay()));
+  const doneKeys = new Set(allWorkouts().filter(x => x.wo.done || x.k === k).map(x => x.k));
+  const week = wk.map(key => ({key, on: doneKeys.has(key), cur: key === k}));
+  const weekN = wk.filter(key => key <= k && doneKeys.has(key)).length;
+  const totalN = allWorkouts().filter(x => (x.wo.done || x.k === k) && x.k <= k).length;
+  return {k, name: wo.name, label: woLabel(wo), ex, vol, sets, reps, prs: ex.filter(x => x.pr).length, dur: woDuration(k, wo), week, weekN, totalN};
+}
+let cardFontsP = null;
+function cardFonts(){
+  if (!cardFontsP) cardFontsP = Promise.all(['400 100px "Anton"', '400 60px "Permanent Marker"', '700 40px "Barlow Semi Condensed"', '600 40px "Barlow Semi Condensed"', '500 40px "Barlow Semi Condensed"']
+    .map(f => document.fonts.load(f).catch(() => null))).then(() => document.fonts.ready).catch(() => null);
+  return cardFontsP;
+}
+function seeded(str){
+  let h = 1779033703; for (const ch of String(str)) h = Math.imul(h ^ ch.charCodeAt(0), 3432918353), h = h << 13 | h >>> 19;
+  return () => { h = Math.imul(h ^ h >>> 16, 2246822507); h = Math.imul(h ^ h >>> 13, 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296; };
+}
+const CARD = {void:"#050507", panel:"#0e0e13", panel2:"#15151c", ink:"#f1efe9", muted:"#9a98a3", blue:"#1f8bff", blueHot:"#74c6ff", red:"#e3172c", redHot:"#ff5263"};
+function roughPoly(ctx, x, y, w, h, rnd, j){
+  // retângulo com bordas rasgadas, como os painéis do app
+  const pts = [], n = Math.max(6, Math.round(w / 46)), m = Math.max(3, Math.round(h / 60));
+  for (let i = 0; i <= n; i++) pts.push([x + w*i/n, y + rnd()*j]);
+  for (let i = 1; i <= m; i++) pts.push([x + w - rnd()*j*.6, y + h*i/m]);
+  for (let i = n; i >= 0; i--) pts.push([x + w*i/n, y + h - rnd()*j]);
+  for (let i = m - 1; i > 0; i--) pts.push([x + rnd()*j*.6, y + h*i/m]);
+  ctx.beginPath(); pts.forEach(([a, b], i) => i ? ctx.lineTo(a, b) : ctx.moveTo(a, b)); ctx.closePath();
+}
+function brush(ctx, x, y, w, h, color, rnd, skew = -0.03){
+  ctx.save(); ctx.translate(x, y); ctx.rotate(skew); ctx.fillStyle = color;
+  roughPoly(ctx, 0, 0, w, h, rnd, h*.35); ctx.fill(); ctx.restore();
+}
+function chroma(ctx, txt, x, y, off, ink = CARD.ink){
+  ctx.fillStyle = CARD.red; ctx.fillText(txt, x - off, y);
+  ctx.fillStyle = CARD.blue; ctx.fillText(txt, x + off, y);
+  ctx.fillStyle = ink; ctx.fillText(txt, x, y);
+}
+function fitLines(ctx, text, maxW, sizes, maxLines, family){
+  for (const s of sizes){
+    ctx.font = `400 ${s}px ${family}`;
+    const words = text.split(/\s+/), lines = [];
+    let cur = "";
+    for (const w of words){ const t = cur ? cur + " " + w : w; if (ctx.measureText(t).width <= maxW || !cur) cur = t; else { lines.push(cur); cur = w; } }
+    if (cur) lines.push(cur);
+    if (lines.length <= maxLines && lines.every(l => ctx.measureText(l).width <= maxW)) return {s, lines};
+  }
+  const s = sizes[sizes.length-1]; ctx.font = `400 ${s}px ${family}`;
+  return {s, lines: [ellipsize(ctx, text, maxW)]};
+}
+function ellipsize(ctx, t, maxW){
+  if (ctx.measureText(t).width <= maxW) return t;
+  while (t.length > 1 && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
+  return t.trimEnd() + "…";
+}
+function cardStatList(st, o){
+  const out = [];
+  if (st.vol > 0) out.push({l:"Volume", v:Math.round(st.vol).toLocaleString("pt-BR"), u:"kg"});
+  if (o.showDur && st.dur) out.push(st.dur < 60 ? {l:"Tempo", v:String(st.dur), u:"min"} : {l:"Tempo", v:`${Math.floor(st.dur/60)}h${pad(st.dur % 60)}`, u:""});
+  if (st.prs) out.push({l:st.prs === 1 ? "Recorde" : "Recordes", v:String(st.prs), u:"", hot:true});
+  out.push({l:"Séries", v:String(st.sets), u:""});
+  if (st.reps) out.push({l:"Repetições", v:String(st.reps), u:""});
+  out.push({l:"Exercícios", v:String(st.ex.length), u:""});
+  return out.slice(0, 4);
+}
+const exBest = x => x.best ? `${fmtKg(x.best.kg)} kg${x.best.r ? ` × ${x.best.r}` : ""}` : x.topR ? `${x.topR} reps` : `${x.es} ${x.es === 1 ? "série" : "séries"}`;
+const cardDate = k => { const d = dateOf(k); return `${WD[d.getDay()]}, ${d.getDate()} de ${MONTHS[d.getMonth()].slice(0,3)} ${d.getFullYear()}`.toUpperCase(); };
+
+async function drawWorkoutCard(st, o){
+  // o: {style: "ml" | "photo" | "clear", fmt: "story" | "feed", img, showEx, showDur}
+  await cardFonts();
+  const W = 1080, P = 80, clear = o.style === "clear", photo = o.style === "photo" && o.img;
+  const story = o.fmt === "story" || clear;
+  const rnd = seeded(st.k + st.name);
+  const stats = cardStatList(st, o);
+  const cols = !story || photo ? Math.min(4, stats.length) : 2;
+  const cellH = cols === 4 ? 170 : 200, valSize = cols === 4 ? 84 : 120;
+  const statRows = Math.ceil(stats.length / cols);
+  const showEx = o.showEx && !clear && !photo && st.ex.length;
+  const H = clear ? 0 : story ? 1920 : 1350;
+  const cv = document.createElement("canvas"), ctx = cv.getContext("2d");
+
+  // ---- medidas da coluna de texto
+  ctx.font = `400 120px "Anton"`;
+  const title = fitLines(ctx, st.name.toUpperCase(), W - 2*P, story ? [132, 118, 104, 92, 82] : [112, 100, 88, 78], 2, '"Anton"');
+  const titleLH = title.s * 1.02;
+  const headH = 120, labelH = 70, titleH = title.lines.length * titleLH + 40;
+  const statsH = statRows * cellH + 40;
+  const weekH = clear ? 0 : 150;
+
+  // altura final do adesivo transparente: só o conteúdo
+  cv.width = W; cv.height = clear ? headH + labelH + titleH + statsH + 60 : H;
+  const Hc = cv.height;
+
+  // ---- fundo
+  if (!clear){
+    if (photo){
+      const im = o.img, s = Math.max(W / im.naturalWidth, Hc / im.naturalHeight);
+      const iw = im.naturalWidth * s, ih = im.naturalHeight * s;
+      ctx.drawImage(im, (W - iw)/2, (Hc - ih)/2, iw, ih);
+      let g = ctx.createLinearGradient(0, 0, 0, Hc*.3); g.addColorStop(0, "rgba(5,5,7,.75)"); g.addColorStop(1, "rgba(5,5,7,0)");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, Hc*.3);
+      g = ctx.createLinearGradient(0, Hc*.38, 0, Hc); g.addColorStop(0, "rgba(5,5,7,0)"); g.addColorStop(.45, "rgba(5,5,7,.72)"); g.addColorStop(1, "rgba(5,5,7,.94)");
+      ctx.fillStyle = g; ctx.fillRect(0, Hc*.38, W, Hc*.62);
+    } else {
+      ctx.fillStyle = CARD.void; ctx.fillRect(0, 0, W, Hc);
+      let g = ctx.createRadialGradient(W*.92, Hc*.06, 0, W*.92, Hc*.06, W*.85); g.addColorStop(0, "rgba(227,23,44,.38)"); g.addColorStop(1, "rgba(227,23,44,0)");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, Hc);
+      g = ctx.createRadialGradient(W*.02, Hc*.9, 0, W*.02, Hc*.9, W*.95); g.addColorStop(0, "rgba(31,139,255,.32)"); g.addColorStop(1, "rgba(31,139,255,0)");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, Hc);
+      // respingos de tinta
+      for (let i = 0; i < 26; i++){
+        const red = rnd() < .55, side = rnd() < .5, x = side ? rnd()*(P - 24) : W - rnd()*(P - 24), y = rnd()*Hc, r = 2 + rnd()*rnd()*12;
+        ctx.fillStyle = red ? "rgba(227,23,44,.55)" : "rgba(31,139,255,.5)";
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+      }
+      // granulado
+      const nz = document.createElement("canvas"); nz.width = nz.height = 160;
+      const nc = nz.getContext("2d"), id = nc.createImageData(160, 160);
+      for (let i = 0; i < id.data.length; i += 4){ const v = rnd()*255; id.data[i] = id.data[i+1] = id.data[i+2] = v; id.data[i+3] = 16; }
+      nc.putImageData(id, 0, 0); ctx.fillStyle = ctx.createPattern(nz, "repeat"); ctx.fillRect(0, 0, W, Hc);
+    }
+  }
+  ctx.textBaseline = "alphabetic";
+  if (clear || photo){ ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 14; ctx.shadowOffsetY = 2; }
+
+  // ---- cabeçalho: marca + data
+  let y = clear ? 30 : story ? 90 : 70;
+  ctx.save(); ctx.translate(P, y + 70); ctx.rotate(-0.035);
+  ctx.font = `400 64px "Permanent Marker"`; chroma(ctx, "Muscle", 0, 0, 3);
+  const mw = ctx.measureText("Muscle ").width;
+  ctx.shadowColor = "transparent";
+  brush(ctx, mw - 6, -58, ctx.measureText("Land").width + 26, 76, CARD.red, rnd, 0.03);
+  ctx.fillStyle = CARD.ink; ctx.fillText("Land", mw + 6, 0);
+  ctx.restore();
+  if (clear || photo){ ctx.shadowColor = "rgba(0,0,0,.55)"; }
+  ctx.font = `700 30px "Barlow Semi Condensed"`; ctx.letterSpacing = "3px"; ctx.textAlign = "right"; ctx.fillStyle = photo || clear ? CARD.ink : CARD.muted;
+  ctx.fillText(cardDate(st.k), W - P, y + 62);
+  ctx.textAlign = "left"; ctx.letterSpacing = "0px";
+
+  // ---- bloco principal (foto: ancorado embaixo)
+  const mainH = labelH + titleH + statsH + (photo ? weekH : 0);
+  y = photo ? Hc - P - mainH + 10 : y + headH + (story && !clear ? 70 : 20);
+
+  ctx.font = `700 32px "Barlow Semi Condensed"`; ctx.letterSpacing = "6px"; ctx.fillStyle = CARD.blueHot;
+  ctx.fillText("TREINO CONCLUÍDO", P, y + 34);
+  ctx.textAlign = "right"; ctx.fillStyle = photo || clear ? CARD.ink : CARD.muted; ctx.fillText(`Nº ${st.totalN}`, W - P, y + 34);
+  ctx.textAlign = "left"; ctx.letterSpacing = "0px";
+  y += labelH;
+
+  // título com faixa de tinta vermelha atrás da última linha
+  const lastW = (ctx.font = `400 ${title.s}px "Anton"`, ctx.measureText(title.lines[title.lines.length-1]).width);
+  const shadowWas = ctx.shadowColor; ctx.shadowColor = "transparent";
+  brush(ctx, P - 10, y + (title.lines.length - 1)*titleLH + title.s*.72, Math.min(W - 2*P + 20, lastW + 40), title.s*.26, CARD.red, rnd, -0.025);
+  ctx.shadowColor = shadowWas;
+  title.lines.forEach((l, i) => chroma(ctx, l, P, y + title.s*.9 + i*titleLH, 4));
+  y += titleH;
+
+  // números
+  const panel = !clear && !photo;
+  if (panel){ ctx.save(); ctx.shadowColor = "transparent"; const g = ctx.createLinearGradient(0, y, 0, y + statsH); g.addColorStop(0, CARD.panel2); g.addColorStop(1, CARD.panel); ctx.fillStyle = g; roughPoly(ctx, P - 30, y - 10, W - 2*P + 60, statsH, rnd, 10); ctx.fill(); ctx.restore(); }
+  const cw = (W - 2*P) / cols;
+  stats.forEach((s, i) => {
+    const cx = P + (i % cols) * cw + (panel ? 10 : 0), cy = y + Math.floor(i / cols) * cellH + (panel ? 28 : 6);
+    ctx.font = `700 ${cols === 4 ? 24 : 28}px "Barlow Semi Condensed"`; ctx.letterSpacing = "4px"; ctx.fillStyle = photo || clear ? CARD.ink : CARD.muted;
+    ctx.fillText(s.l.toUpperCase(), cx, cy + 26); ctx.letterSpacing = "0px";
+    // número diminui até caber na coluna (ex.: 12.450 kg em 4 colunas)
+    const uSize = cols === 4 ? 30 : 40, maxW = cw - 26;
+    ctx.font = `600 ${uSize}px "Barlow Semi Condensed"`; const uw = s.u ? ctx.measureText(s.u).width + 8 : 0;
+    let vs = valSize; ctx.font = `400 ${vs}px "Anton"`;
+    while (vs > 40 && ctx.measureText(s.v).width + uw > maxW){ vs -= 4; ctx.font = `400 ${vs}px "Anton"`; }
+    ctx.fillStyle = s.hot ? CARD.redHot : CARD.ink;
+    ctx.fillText(s.v, cx, cy + 34 + valSize*.95);
+    if (s.u){ const vw = ctx.measureText(s.v).width; ctx.font = `600 ${uSize}px "Barlow Semi Condensed"`; ctx.fillStyle = photo || clear ? CARD.ink : CARD.muted; ctx.fillText(s.u, cx + vw + 8, cy + 34 + valSize*.95); }
+  });
+  y += statsH;
+
+  // exercícios (estilo Muscle Land)
+  const footY = Hc - P - weekH + 20;
+  if (showEx){
+    y += story ? 30 : 10;
+    const rowH = story ? 96 : 84, avail = footY - y - 66;
+    const n = Math.max(1, Math.floor(avail / rowH));
+    const extra = st.ex.length > n ? st.ex.length - (n - 1) : 0;
+    const list = extra ? st.ex.slice(0, n - 1) : st.ex.slice(0, n);
+    ctx.font = `700 26px "Barlow Semi Condensed"`; ctx.letterSpacing = "5px"; ctx.fillStyle = CARD.muted;
+    ctx.fillText("EXERCÍCIOS", P, y + 26); ctx.letterSpacing = "0px";
+    y += 46;
+    list.forEach(x => {
+      ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.setLineDash([6, 8]); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(P, y + 4); ctx.lineTo(W - P, y + 4); ctx.stroke(); ctx.setLineDash([]);
+      const right = exBest(x);
+      ctx.font = `400 ${story ? 48 : 42}px "Anton"`; const rw = ctx.measureText(right).width;
+      ctx.fillStyle = CARD.ink; ctx.textAlign = "right"; ctx.fillText(right, W - P, y + (story ? 58 : 52)); ctx.textAlign = "left";
+      ctx.font = `600 ${story ? 38 : 34}px "Barlow Semi Condensed"`; ctx.fillStyle = CARD.ink;
+      const nameW = W - 2*P - rw - 30;
+      ctx.fillText(ellipsize(ctx, x.n, nameW), P, y + (story ? 46 : 42));
+      ctx.font = `500 ${story ? 27 : 25}px "Barlow Semi Condensed"`; ctx.fillStyle = CARD.muted;
+      const sub = `${x.es} ${x.es === 1 ? "série" : "séries"}${x.er ? ` · ${x.er} reps` : ""}`;
+      ctx.fillText(sub, P, y + (story ? 80 : 72));
+      if (x.pr){
+        const sw = ctx.measureText(sub).width, tag = `RECORDE +${fmtKg(x.pr)} KG`;
+        ctx.font = `400 ${story ? 24 : 22}px "Anton"`; ctx.letterSpacing = "2px";
+        const tw = ctx.measureText(tag).width;
+        brush(ctx, P + sw + 16, y + (story ? 56 : 50), tw + 22, story ? 32 : 30, CARD.red, rnd, -0.02);
+        ctx.fillStyle = CARD.ink; ctx.fillText(tag, P + sw + 27, y + (story ? 81 : 73)); ctx.letterSpacing = "0px";
+      }
+      y += rowH;
+    });
+    if (extra){ ctx.font = `600 32px "Barlow Semi Condensed"`; ctx.fillStyle = CARD.blueHot; ctx.fillText(`+ ${extra} ${extra === 1 ? "exercício" : "exercícios"}`, P, y + 44); }
+  }
+
+  // semana
+  if (!clear){
+    const wy = photo ? Hc - P - weekH + 30 : footY;
+    const r = story ? 34 : 30, gap = story ? 86 : 78;
+    ctx.font = `700 24px "Barlow Semi Condensed"`; ctx.letterSpacing = "5px"; ctx.fillStyle = photo ? CARD.ink : CARD.muted;
+    ctx.fillText("SEMANA", P, wy + 10); ctx.letterSpacing = "0px";
+    const letters = ["D","S","T","Q","Q","S","S"];
+    st.week.forEach((d, i) => {
+      const cx = P + r + i*gap, cy = wy + 34 + r;
+      ctx.save(); ctx.shadowColor = "transparent";
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+      if (d.on){ ctx.fillStyle = CARD.red; ctx.fill(); } else { ctx.fillStyle = "rgba(255,255,255,.07)"; ctx.fill(); }
+      if (d.cur){ ctx.lineWidth = 5; ctx.strokeStyle = CARD.blueHot; ctx.stroke(); }
+      ctx.restore();
+      ctx.font = `700 ${story ? 28 : 25}px "Barlow Semi Condensed"`; ctx.textAlign = "center"; ctx.fillStyle = d.on ? CARD.ink : CARD.muted;
+      ctx.fillText(letters[i], cx, cy + 10); ctx.textAlign = "left";
+    });
+    ctx.textAlign = "right";
+    ctx.font = `400 ${story ? 60 : 52}px "Anton"`; ctx.fillStyle = CARD.ink; ctx.fillText(String(st.weekN), W - P, wy + 70);
+    ctx.font = `600 26px "Barlow Semi Condensed"`; ctx.fillStyle = photo ? CARD.ink : CARD.muted; ctx.fillText(st.weekN === 1 ? "treino na semana" : "treinos na semana", W - P, wy + 106);
+    ctx.textAlign = "left";
+  }
+  return cv;
+}
+function cardBlob(cv, png){ return new Promise(res => cv.toBlob(b => res(b), png ? "image/png" : "image/jpeg", .92)); }
+
+function openWorkoutCard(k){
+  const d = getDay(k, false), wo = d && d.wo; if (!wo) return;
+  const o = {style:"ml", fmt:"story", img:null, showEx:true, showDur:true};
+  let st = workoutStats(k, wo), blob = null, url = null, busy = 0;
+  openSheet(`${sheetHead("Compartilhar treino")}
+    <div class="card-wrap" id="cardWrap"><img id="cardImg" class="card-prev" alt="Prévia do cartão do treino"><p class="note" id="cardWait" style="margin:0">Montando o cartão…</p></div>
+    <div class="seg modes" role="group" aria-label="Estilo">${[["ml","Muscle Land"],["photo","Sua foto"],["clear","Transparente"]].map(([v,l]) => `<button data-cst="${v}">${l}</button>`).join("")}</div>
+    <div class="seg modes" role="group" aria-label="Formato" id="cardFmt">${[["story","Stories 9:16"],["feed","Feed 4:5"]].map(([v,l]) => `<button data-cfm="${v}">${l}</button>`).join("")}</div>
+    <label class="btn blue wide" id="cardPhotoBtn" style="text-align:center;cursor:pointer" hidden>Escolher foto<input id="cardPhoto" type="file" accept="image/*" hidden></label>
+    <p class="note" id="cardHint" style="margin:0"></p>
+    <div class="grid2">
+      <div class="field"><label for="cardDur">Duração (min)</label><input id="cardDur" type="text" inputmode="numeric" placeholder="Ex.: 60" value="${st.dur || ""}"></div>
+      <div class="field"><label>&nbsp;</label><button class="chip" id="cardEx" aria-pressed="true" style="height:46px">Lista de exercícios</button></div>
+    </div>
+    <button class="btn wide" id="cardShare">Compartilhar</button>
+    <button class="btn ghost wide" id="cardSave">Salvar imagem</button>`);
+  const img = $("#cardImg");
+  const sync = () => {
+    document.querySelectorAll("[data-cst]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cst === o.style)));
+    document.querySelectorAll("[data-cfm]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cfm === o.fmt)));
+    $("#cardFmt").hidden = o.style === "clear";
+    $("#cardPhotoBtn").hidden = o.style !== "photo";
+    $("#cardPhotoBtn").firstChild.textContent = o.img ? "Trocar foto" : "Escolher foto";
+    $("#cardEx").hidden = o.style !== "ml"; $("#cardEx").setAttribute("aria-pressed", String(o.showEx)); $("#cardEx").textContent = o.showEx ? "✓ Com exercícios" : "Sem exercícios";
+    $("#cardHint").textContent = o.style === "clear" ? "Fundo transparente, para colocar por cima de uma foto sua." : o.style === "photo" ? (o.img ? "A foto fica só no seu celular; o app não guarda nem envia." : "Escolha uma foto do treino. Os números entram por cima dela.") : "No Instagram, escolha Stories, Feed ou Direct.";
+    img.classList.toggle("clear", o.style === "clear");
+  };
+  const draw = async () => {
+    const my = ++busy;
+    const cv = await drawWorkoutCard(st, {...o, img: o.style === "photo" ? o.img : null, style: o.style === "photo" && !o.img ? "ml" : o.style});
+    const b = await cardBlob(cv, o.style === "clear");
+    if (my !== busy || !$("#cardImg")) return;
+    blob = b; if (url) URL.revokeObjectURL(url); url = URL.createObjectURL(b); img.src = url;
+    $("#cardWait").hidden = true;
+  };
+  const fname = () => `treino-muscle-land-${k}.${o.style === "clear" ? "png" : "jpg"}`;
+  document.querySelectorAll("[data-cst]").forEach(b => b.onclick = () => { o.style = b.dataset.cst; sync(); draw(); if (o.style === "photo" && !o.img) $("#cardPhoto").click(); });
+  document.querySelectorAll("[data-cfm]").forEach(b => b.onclick = () => { o.fmt = b.dataset.cfm; sync(); draw(); });
+  $("#cardEx").onclick = () => { o.showEx = !o.showEx; sync(); draw(); };
+  $("#cardPhoto").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try{ o.img = await loadImg(f); }catch(_){ toast("Não consegui abrir essa foto"); return; }
+    sync(); draw();
+  };
+  $("#cardDur").addEventListener("change", e => {
+    const v = Math.round(num(e.target.value) || 0);
+    if (v > 0 && v <= 600){ wo.dur = v; } else { delete wo.dur; e.target.value = ""; }
+    touchDay(k); st = workoutStats(k, wo); draw();
+  });
+  const save = async () => {
+    if (!blob) return;
+    try{
+      const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
+      if (dl){ await dl.save({filename:fname(), data:blob}); toast("Imagem salva"); return; }
+    }catch(e){ if (e && e.code === "declined") return; }
+    const a = document.createElement("a"), u = URL.createObjectURL(blob); a.href = u; a.download = fname(); document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 4000); toast("Imagem salva");
+  };
+  $("#cardSave").onclick = save;
+  $("#cardShare").onclick = async () => {
+    if (!blob) return;
+    const file = new File([blob], fname(), {type: blob.type});
+    try{
+      if (navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:`${st.name} · Muscle Land`}); return; }
+    }catch(e){ if (e && e.name === "AbortError") return; }
+    toast("Aqui não dá para abrir o compartilhamento. Salve a imagem e poste pelo Instagram.");
+    save();
+  };
+  sync(); draw();
 }
 
 /* ================= Corpo (percentual de gordura) ================= */
@@ -2168,7 +2512,7 @@ function toast(msg, action){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "12/10/2026 16:56";
+const APP_BUILD = "13/10/2026 07:38";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
