@@ -207,6 +207,8 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .card-prev{display:block;max-width:100%;max-height:52vh;width:auto;box-shadow:0 10px 30px rgba(0,0,0,.6);border:1px solid var(--line-2)}
 .card-prev:not([src]){display:none}
 .card-prev.clear{background:repeating-conic-gradient(#1b1b22 0 25%,#2a2a33 0 50%) 0 0/24px 24px}
+.share-tg{width:100%;padding:12px 10px;font-size:15px;text-align:left}
+.share-tg[aria-pressed=true]{border-color:var(--blue);background:#0a1d38;color:var(--ink)}
 .tag-rec{display:inline-block;background:var(--blue);color:#fff;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:1px 5px;vertical-align:2px}
 .rc-items li .add{padding:5px 9px 4px;font-size:13px}
 .stepper{display:grid;grid-template-columns:52px 1fr 52px;gap:8px;align-items:center}
@@ -455,7 +457,7 @@ const DEFAULT_SETTINGS = () => ({
   week:["B","A","M","A","B","A","M"],
   days:3, level:"ini", program:"golden6",
   meals: DEFAULT_MEALS.map(m => ({...m})), saved:[], customEx:[], myWo:[], units:{}, lastUnit:{}, tipSwipe:false,
-  custom:[], recipes:[], recent:[], t:0
+  custom:[], recipes:[], recent:[], shareNew:true, comDel:[], t:0
 });
 let S = DEFAULT_SETTINGS();
 let M = {};
@@ -472,6 +474,7 @@ function mergeSettings(raw){
   if (!s.lastUnit || typeof s.lastUnit !== "object") s.lastUnit = {};
   if (!Array.isArray(s.custom)) s.custom = [];
   if (!Array.isArray(s.recipes)) s.recipes = [];
+  if (!Array.isArray(s.comDel)) s.comDel = [];
   return s;
 }
 function loadLocal(){
@@ -658,12 +661,60 @@ function recipeFood(r){
 }
 function myFoods(){ return S.custom.map(c => { const n = foodLabel(c); return {key:"c"+c.id, n, cat:"Meus alimentos", k:c.k, p:c.p, c:c.c, f:c.f, nn:norm(n), mine:true}; }); }
 function myRecipes(){ return S.recipes.filter(r => r.items && r.items.length).map(recipeFood); }
-function allFoods(){ return myRecipes().concat(myFoods(), FOODS); }
+/* Comunidade: alimentos que outras pessoas compartilharam (só na versão instalável) */
+let comMemo = {sig:"", list:[]};
+function communityFoods(){
+  if (!Community) return [];
+  const sig = `${Community.lastSync()}:${Community.count()}:${S.custom.length}:${S.t}`;
+  if (comMemo.sig === sig) return comMemo.list;
+  const me = Community.uid();
+  const sids = new Set(S.custom.map(c => c.sid).filter(Boolean)), bcs = new Set(S.custom.map(c => c.bc).filter(Boolean)), names = new Set(S.custom.map(c => norm(foodLabel(c))));
+  const list = Object.entries(Community.items()).filter(([id, d]) => !sids.has(id) && !(d.bc && bcs.has(d.bc)) && !names.has(norm(foodLabel(d))))
+    .map(([id, d]) => { const n = foodLabel(d); return {key:"s"+id, sid:id, n, cat:"Comunidade", src:3, k:d.k, p:d.p, c:d.c, f:d.f, nn:norm(n), shared:true, own: !!me && d.uid === me}; });
+  comMemo = {sig, list};
+  return list;
+}
+function allFoods(){ return myRecipes().concat(myFoods(), communityFoods(), FOODS); }
+const sharePayload = c => ({n:c.n, b:c.b || "", k:c.k, p:c.p, c:c.c, f:c.f, por:c.por || 0, bc:c.bc || "", u:(S.units["c" + c.id] || []).slice(0, 6)});
+async function shareCustom(c, quiet){
+  if (!Community) return;
+  c.share = true; delete c.pend;
+  if (!c.sid){
+    // já existe igual, de outra pessoa: não duplica
+    const me = Community.uid();
+    const dup = Object.entries(Community.items()).find(([id, d]) => d.uid !== me && ((c.bc && d.bc === c.bc) || norm(foodLabel(d)) === norm(foodLabel(c))));
+    if (dup){ touchSettings(); if (!quiet) toast("Esse alimento já está na comunidade"); return; }
+  }
+  try{
+    c.sid = await Community.publish(sharePayload(c), c.sid);
+    touchSettings(); if (!quiet) toast("Compartilhado com a comunidade");
+  }catch(e){
+    if (e && e.status >= 400 && e.status < 500 && e.status !== 401){ c.share = false; touchSettings(); if (!quiet) toast("Não deu para compartilhar: confira nome e valores"); return; }
+    c.pend = true; touchSettings(); if (!quiet) toast("Sem internet: compartilho quando a conexão voltar");
+  }
+}
+function unshareCustom(c){
+  c.share = false; delete c.pend;
+  if (Community && c.sid){ const sid = c.sid; delete c.sid; S.comDel = (S.comDel || []).concat(sid); Community.remove(sid).then(() => { S.comDel = S.comDel.filter(x => x !== sid); touchSettings(); }).catch(() => {}); }
+  touchSettings();
+}
+async function communitySync(force){
+  if (!Community) return 0;
+  let n = 0;
+  try{ n = await Community.sync(force); }catch(e){ return 0; }
+  for (const c of S.custom.filter(c => c.pend)) await shareCustom(c, true);
+  for (const sid of (S.comDel || []).slice()){
+    try{ await Community.remove(sid); S.comDel = S.comDel.filter(x => x !== sid); touchSettings(); }
+    catch(e){ if (e && e.status >= 400 && e.status < 500 && e.status !== 401){ S.comDel = S.comDel.filter(x => x !== sid); touchSettings(); } }
+  }
+  if (n){ if ($("#q") && ui.redrawSearch) ui.redrawSearch(); else if (!$("#sheetRoot").innerHTML) render(); }
+  return n;
+}
 function findFood(key){ return allFoods().find(f => f.key === key); }
 function searchFoods(q, scope){
   const words = norm(q).split(/[\s,]+/).filter(Boolean);
-  if (scope === "mine" || scope === "rec"){
-    const own = scope === "rec" ? myRecipes() : myFoods();
+  if (scope === "mine" || scope === "rec" || scope === "com"){
+    const own = scope === "rec" ? myRecipes() : scope === "com" ? communityFoods() : myFoods();
     return words.length ? own.filter(f => words.every(w => f.nn.includes(w))) : own;
   }
   const list = allFoods();
@@ -818,7 +869,12 @@ function unitsFor(food){
     if (!out.some(o => o.n === c.unit)) out.unshift({n:c.unit, g:r1(c.portionG), mine:true});
     if (c.s !== 1) out.push({n:"receita inteira", g:r1(c.W), mine:true});
   }
-  if (/^[cr]/.test(String(food.key || ""))) return out; // alimento ou receita sua: só as medidas que você definiu
+  const sh = String(food.key || "").startsWith("s") && Community && Community.items()[food.key.slice(1)];
+  if (sh){
+    sh.u.forEach(u => { if (!out.some(o => o.n === u.n)) out.push({n:u.n, g:u.g, mine:true}); });
+    if (sh.por && Math.abs(sh.por - 100) > 0.01 && !out.some(o => Math.abs(o.g - sh.por) < 0.01)) out.push({n:"porção do rótulo", g:sh.por});
+  }
+  if (/^[crs]/.test(String(food.key || ""))) return out; // alimento seu, receita ou da comunidade: só as medidas cadastradas
   const nn = food.nn || norm(food.n);
   const rule = MEASURES.find(([re]) => re.test(nn));
   if (rule) rule[1].forEach(([n, g]) => { if (!out.some(o => o.n === n)) out.push({n, g}); });
@@ -923,6 +979,151 @@ async function remoteLookup(code){
   }catch(e){ return null; }
   finally{ clearTimeout(timer); }
 }
+
+// Busca por nome nos produtos vendidos no Brasil (Open Food Facts). Só quando a pessoa pede: o limite deles é de 10 buscas por minuto.
+async function remoteSearch(q){
+  if (!navigator.onLine) return null;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
+  try{
+    const url = "https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&page_size=24"
+      + "&tagtype_0=countries&tag_contains_0=contains&tag_0=brazil"
+      + "&fields=code,product_name,product_name_pt,brands,nutriments,serving_quantity"
+      + "&search_terms=" + encodeURIComponent(q);
+    const r = await fetch(url, {signal: ctl.signal});
+    if (!r.ok) return null;
+    const j = await r.json();
+    const num = v => { const n = Number(v); return v !== undefined && v !== "" && isFinite(n) && n >= 0 ? n : null; };
+    return (j.products || []).map(p => {
+      const nu = p.nutriments || {};
+      let k = num(nu["energy-kcal_100g"]); if (k == null && num(nu["energy_100g"]) != null) k = num(nu["energy_100g"]) / 4.184;
+      const pr = num(nu.proteins_100g), c = num(nu.carbohydrates_100g), f = num(nu.fat_100g);
+      const por = num(p.serving_quantity);
+      return {code: /^\d{8,14}$/.test(p.code || "") ? p.code : null, n: p.product_name_pt || p.product_name || "", b: p.brands ? String(p.brands).split(",")[0].trim() : "",
+        base: 100, k: k != null ? Math.round(k) : null, p: pr, c, f, por: por && por > 0 ? por : null};
+    }).filter(x => x.n && x.k != null && x.p != null && x.c != null && x.f != null && x.k <= 900);
+  }catch(e){ return null; }
+  finally{ clearTimeout(timer); }
+}
+
+
+// Base da comunidade (Firebase Firestore via REST): alimentos cadastrados por qualquer usuário, visíveis para todos.
+// Login anônimo do Firebase: não pede nome nem e-mail; só identifica quem pode editar cada cadastro.
+const Community = (() => {
+  const CFG = null;
+  if (!CFG || !CFG.apiKey || !CFG.projectId) return null;
+  const LS = "muscleLand.community", AU = "muscleLand.auth";
+  const DOCS = `${CFG.fs}/v1/projects/${CFG.projectId}/databases/(default)/documents`;
+  const NAME = id => `projects/${CFG.projectId}/databases/(default)/documents/foods/${id}`;
+  let cache = {t:"1970-01-01T00:00:00Z", items:{}, at:0};
+  try{ const c = JSON.parse(localStorage.getItem(LS) || "null"); if (c && c.items) cache = c; }catch(e){}
+  let auth = null;
+  try{ auth = JSON.parse(localStorage.getItem(AU) || "null"); }catch(e){}
+  const save = () => { try{ localStorage.setItem(LS, JSON.stringify(cache)); }catch(e){} };
+  const saveAuth = () => { try{ localStorage.setItem(AU, JSON.stringify(auth)); }catch(e){} };
+
+  // ---- conversão Firestore <-> JS
+  const enc = v => v === null || v === undefined ? {nullValue:null}
+    : typeof v === "boolean" ? {booleanValue:v}
+    : typeof v === "number" ? (Number.isInteger(v) ? {integerValue:String(v)} : {doubleValue:v})
+    : Array.isArray(v) ? {arrayValue:{values:v.map(enc)}}
+    : typeof v === "object" ? {mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k, x]) => [k, enc(x)]))}}
+    : {stringValue:String(v)};
+  const dec = v => {
+    if (!v) return null;
+    if ("stringValue" in v) return v.stringValue;
+    if ("doubleValue" in v) return Number(v.doubleValue);
+    if ("integerValue" in v) return Number(v.integerValue);
+    if ("booleanValue" in v) return v.booleanValue;
+    if ("timestampValue" in v) return v.timestampValue;
+    if ("arrayValue" in v) return (v.arrayValue.values || []).map(dec);
+    if ("mapValue" in v) return Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, dec(x)]));
+    return null;
+  };
+  const clean = d => {
+    const n = x => { const v = Number(x); return isFinite(v) && v >= 0 ? v : 0; };
+    const u = Array.isArray(d.u) ? d.u.filter(x => x && typeof x.n === "string" && n(x.g) > 0).slice(0, 6).map(x => ({n:String(x.n).slice(0, 30).toLowerCase(), g:n(x.g)})) : [];
+    return {n:String(d.n || "").slice(0, 60), b:String(d.b || "").slice(0, 40), k:n(d.k), p:n(d.p), c:n(d.c), f:n(d.f), por:n(d.por), bc:String(d.bc || ""), u, uid:String(d.uid || ""), del:!!d.del};
+  };
+
+  // ---- login anônimo (token renovado sozinho)
+  async function token(){
+    if (auth && auth.id && auth.exp > Date.now() + 60000) return auth.id;
+    if (auth && auth.refresh){
+      const r = await fetch(`${CFG.token}/v1/token?key=${CFG.apiKey}`, {method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body:`grant_type=refresh_token&refresh_token=${encodeURIComponent(auth.refresh)}`});
+      if (r.ok){ const j = await r.json(); auth = {uid:j.user_id, id:j.id_token, refresh:j.refresh_token, exp:Date.now() + (Number(j.expires_in) || 3600)*1000}; saveAuth(); return auth.id; }
+    }
+    const r = await fetch(`${CFG.auth}/v1/accounts:signUp?key=${CFG.apiKey}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true})});
+    if (!r.ok) throw new Error("auth " + r.status);
+    const j = await r.json();
+    auth = {uid:j.localId, id:j.idToken, refresh:j.refreshToken, exp:Date.now() + (Number(j.expiresIn) || 3600)*1000}; saveAuth();
+    return auth.id;
+  }
+  async function commit(write){
+    const tk = await token();
+    const r = await fetch(`${DOCS}:commit?key=${CFG.apiKey}`, {method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${tk}`}, body:JSON.stringify({writes:[write]})});
+    if (!r.ok){ const e = new Error("commit " + r.status); e.status = r.status; throw e; }
+  }
+
+  // ---- leitura incremental: só o que mudou desde a última vez
+  let syncing = null;
+  async function sync(force){
+    if (syncing) return syncing;
+    if (!force && Date.now() - (cache.at || 0) < 10*60000) return 0;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return 0;
+    syncing = (async () => {
+      let got = 0;
+      for (let page = 0; page < 40; page++){
+        const body = {structuredQuery:{from:[{collectionId:"foods"}], where:{fieldFilter:{field:{fieldPath:"t"}, op:"GREATER_THAN", value:{timestampValue:cache.t}}}, orderBy:[{field:{fieldPath:"t"}, direction:"ASCENDING"}], limit:300}};
+        const r = await fetch(`${DOCS}:runQuery?key=${CFG.apiKey}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+        if (!r.ok) throw new Error("query " + r.status);
+        const rows = (await r.json()).filter(x => x.document);
+        rows.forEach(x => {
+          const id = x.document.name.split("/").pop(), f = x.document.fields || {};
+          const d = Object.fromEntries(Object.entries(f).map(([k, v]) => [k, dec(v)]));
+          if (d.t) cache.t = d.t;
+          if (d.del) delete cache.items[id]; else cache.items[id] = clean(d);
+          got++;
+        });
+        if (rows.length < 300) break;
+      }
+      cache.at = Date.now(); save();
+      return got;
+    })().finally(() => { syncing = null; });
+    return syncing;
+  }
+
+  function fields(food){
+    const d = {n:food.n, b:food.b || "", k:food.k, p:food.p, c:food.c, f:food.f, por:food.por || 0, bc:food.bc || "", u:(food.u || []).slice(0, 6).map(x => ({n:x.n, g:x.g})), uid:auth.uid, del:false, v:1};
+    return Object.fromEntries(Object.entries(d).map(([k, v]) => [k, enc(v)]));
+  }
+  const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(15)), b => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+  const stamp = [{fieldPath:"t", setToServerValue:"REQUEST_TIME"}];
+
+  // cria (sem id) ou atualiza (com id, só se o cadastro for seu)
+  async function publish(food, id){
+    await token();
+    const fresh = !id; id = id || newId();
+    await commit({update:{name:NAME(id), fields:fields(food)}, updateTransforms:stamp, currentDocument:{exists:!fresh}});
+    cache.items[id] = clean({...food, uid:auth.uid}); save();
+    return id;
+  }
+  async function remove(id){
+    await token();
+    await commit({update:{name:NAME(id), fields:{del:enc(true)}}, updateMask:{fieldPaths:["del"]}, updateTransforms:stamp, currentDocument:{exists:true}});
+    delete cache.items[id]; save();
+  }
+  async function report(fid, why){
+    await token();
+    await commit({update:{name:`projects/${CFG.projectId}/databases/(default)/documents/reports/${newId()}`, fields:{fid:enc(fid), why:enc(String(why).slice(0, 200)), uid:enc(auth.uid)}}, updateTransforms:stamp, currentDocument:{exists:false}});
+  }
+  return {
+    sync, publish, remove, report,
+    items: () => cache.items,
+    count: () => Object.keys(cache.items).length,
+    uid: () => auth && auth.uid,
+    lastSync: () => cache.at || 0
+  };
+})();
 
 let labelP = null;
 function labelReader(){
@@ -1165,9 +1366,10 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
     openSheet(`${sheetHead(pick ? "Adicionar ingrediente" : `Adicionar em ${esc(mealName(mealId))}`)}
       <div class="row"><input id="q" type="search" placeholder="${scope === "rec" ? "Buscar nas suas receitas" : scope === "mine" ? "Buscar nos seus alimentos" : "Buscar: frango grelhado, arroz, ovo…"}" autocomplete="off" aria-label="Buscar alimento" class="grow">
         <button class="iconbtn" id="scanBtn" aria-label="Buscar pelo código de barras" title="Código de barras" style="flex:none;width:48px;height:46px"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M16 8v8"/></svg></button></div>
-      <div class="seg scope" role="group" aria-label="Onde buscar">${[["all","Todos"],["mine","Meus alimentos"],["rec","Receitas"]].map(([v,l]) => `<button data-sc="${v}" aria-pressed="${scope === v}">${l}</button>`).join("")}</div>
+      <div class="seg scope" role="group" aria-label="Onde buscar">${(Community ? [["all","Todos"],["mine","Meus"],["rec","Receitas"],["com","Comunidade"]] : [["all","Todos"],["mine","Meus alimentos"],["rec","Receitas"]]).map(([v,l]) => `<button data-sc="${v}" aria-pressed="${scope === v}">${l}</button>`).join("")}</div>
       <ul class="results saved" id="sav"></ul>
       <ul class="results" id="res"></ul>
+      <div id="web"></div>
       <div class="${pick ? "" : "grid2"}">
         <button class="btn ghost wide" id="newFood">+ Novo alimento</button>
         ${pick ? "" : `<button class="btn ghost wide" id="newRec">+ Nova receita</button>`}
@@ -1181,7 +1383,7 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
         const r = S.recipes.find(x => "r" + x.id === f.key), c = recipeCalc(r);
         return `<li><button data-k="${f.key}"><div class="rn">${esc(f.n)} <span class="tag-rec">receita</span></div><div class="rm num">${r0(c.portion.k)} kcal · P ${fmt1(c.portion.p)} · C ${fmt1(c.portion.c)} · G ${fmt1(c.portion.f)} <span style="color:var(--dim)">por ${esc(c.unit)} de ${fmtQ(r1(c.portionG))} g · rende ${fmtQ(c.s)}</span></div></button></li>`;
       }
-      return `<li><button data-k="${f.key}"><div class="rn">${esc(f.n)}</div><div class="rm num">${r0(f.k)} kcal · P ${fmt1(f.p)} · C ${fmt1(f.c)} · G ${fmt1(f.f)} <span style="color:var(--dim)">por 100 g${f.mine?" · seu":f.src === 2 ? " · IBGE" : ""}${(u => u ? ` · 1 ${u.n} = ${fmtQ(u.g)} g` : "")(unitsFor(f)[0])}</span></div></button></li>`;
+      return `<li><button data-k="${f.key}"><div class="rn">${esc(f.n)}</div><div class="rm num">${r0(f.k)} kcal · P ${fmt1(f.p)} · C ${fmt1(f.c)} · G ${fmt1(f.f)} <span style="color:var(--dim)">por 100 g${f.mine?" · seu":f.shared ? (f.own ? " · seu, na comunidade" : " · comunidade") : f.src === 2 ? " · IBGE" : ""}${(u => u ? ` · 1 ${u.n} = ${fmtQ(u.g)} g` : "")(unitsFor(f)[0])}</span></div></button></li>`;
     };
     const draw = () => {
       const sc = scope;
@@ -1194,13 +1396,36 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       let empty;
       if (sc === "rec") empty = qt ? `Nenhuma receita com "${esc(qt)}".` : excludeKey && S.recipes.length ? `Nenhuma outra receita salva. Uma receita não pode entrar nela mesma.` : `Nenhuma receita ainda. Junte os ingredientes, diga quantas porções rende e o app calcula os macros de cada porção.${pick ? "" : `<button class="btn wide" id="newRec2" style="margin-top:10px">Criar minha primeira receita</button>`}`;
       else if (sc === "mine") empty = qt ? `Nenhum alimento seu com "${esc(qt)}".` : `Você ainda não cadastrou alimentos. Cadastre pelo rótulo ou pelo código de barras.`;
+      else if (sc === "com") empty = qt ? `Ninguém compartilhou "${esc(qt)}" ainda. Cadastre e seja o primeiro.` : `Ainda não há alimentos da comunidade neste celular. Com internet, eles aparecem aqui.`;
       else empty = `Nenhum alimento com "${esc(qt)}". Tente outra palavra ou cadastre o seu.<button class="btn wide" id="newNamed" style="margin-top:10px">Cadastrar "${esc(qt.slice(0,30))}"</button>`;
       res.innerHTML = list.length ? list.map(foodRow).join("") : `<li class="note" style="padding:12px 0">${empty}</li>`;
       $("#newNamed")?.addEventListener("click", () => customFoodView({name: qt}));
       $("#newRec2")?.addEventListener("click", newRecipe);
       res.querySelectorAll("[data-k]").forEach(b => b.onclick = () => { food = findFood(b.dataset.k); grams = 100; qtyView(); });
+      // internet: produtos do Open Food Facts, só quando a pessoa toca
+      const web = $("#web");
+      if (remoteSearch && qt.length >= 3 && sc !== "rec" && sc !== "mine" && web.dataset.q !== norm(qt)){
+        web.dataset.q = ""; web.innerHTML = `<button class="btn ghost wide" id="webGo">Buscar "${esc(qt.slice(0,30))}" na internet</button>`;
+        $("#webGo").onclick = () => webSearch(qt);
+      } else if (qt.length < 3 || sc === "rec" || sc === "mine"){ web.innerHTML = ""; web.dataset.q = ""; }
     };
+    const webSearch = async qt => {
+      const web = $("#web"); web.dataset.q = norm(qt);
+      web.innerHTML = `<p class="note" style="margin:0">Procurando produtos no Open Food Facts…</p>`;
+      const list = await remoteSearch(qt);
+      if (!$("#web") || web.dataset.q !== norm(qt)) return;
+      if (!list){ web.innerHTML = `<p class="note warn" style="margin:0">Não deu para buscar agora. Confira a internet e tente de novo em instantes.</p>`; web.dataset.q = ""; return; }
+      web.innerHTML = list.length ? `<div class="label" style="margin:2px 0 6px">Na internet · Open Food Facts</div><ul class="results">${list.map((x, i) => `<li><button data-w="${i}"><div class="rn">${esc(x.n)}${x.b ? ` <span class="muted">· ${esc(x.b)}</span>` : ""}</div><div class="rm num">${r0(x.k)} kcal · P ${fmt1(x.p)} · C ${fmt1(x.c)} · G ${fmt1(x.f)} <span style="color:var(--dim)">por 100 g · confira antes de salvar</span></div></button></li>`).join("")}</ul>`
+        : `<p class="note" style="margin:0">Nada encontrado com tabela nutricional completa. Cadastre pelo rótulo.</p>`;
+      web.querySelectorAll("[data-w]").forEach(b => b.onclick = () => {
+        const x = list[+b.dataset.w], hit = x.code && S.custom.find(c => c.bc === x.code);
+        if (hit){ food = findFood("c" + hit.id); grams = hit.por || 100; qtyView(); return; }
+        customFoodView({bc: x.code, pre: x});
+      });
+    };
+    ui.redrawSearch = draw;
     q.oninput = draw; draw();
+    communitySync();
     $("#newFood").onclick = () => customFoodView();
     $("#newRec")?.addEventListener("click", newRecipe);
     $("#pickBack")?.addEventListener("click", dismissSheet);
@@ -1213,6 +1438,9 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
   async function useCode(code){
     const hit = S.custom.find(c => c.bc === code);
     if (hit){ food = findFood("c"+hit.id); grams = hit.por || 100; qtyView(); return; }
+    const sh = Community && Object.entries(Community.items()).find(([, d]) => d.bc === code);
+    const shFood = sh && findFood("s" + sh[0]);
+    if (shFood){ food = shFood; grams = sh[1].por || 100; qtyView(); toast("Encontrado na comunidade"); return; }
     const msg = $("#bcMsg"); if (msg){ msg.textContent = "Procurando o produto…"; msg.className = "note"; }
     const pre = await remoteLookup(code).catch(() => null);
     if (!$("#sheetRoot").innerHTML) return;
@@ -1275,7 +1503,10 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       <button class="btn wide" id="ok">${pick ? (edit ? "Salvar ingrediente" : "Adicionar à receita") : edit ? "Salvar alteração" : "Adicionar"}</button>
       ${isRecipe && !pick && !edit ? `<button class="btn blue wide" id="split">Adicionar ingredientes separados</button>` : ""}
       ${edit ? `<button class="btn ghost wide" id="del" style="color:var(--red-hot)">${pick ? "Remover da receita" : "Remover da refeição"}</button>` : `<button class="btn ghost wide" id="back">Voltar para a busca</button>`}
-      ${pick && edit ? `<button class="btn ghost wide" id="pickBack">Voltar para a receita</button>` : ""}`);
+      ${pick && edit ? `<button class="btn ghost wide" id="pickBack">Voltar para a receita</button>` : ""}
+      ${Community && String(food.key || "").startsWith("s") && !edit ? `<details id="repBox"><summary>Algo errado neste alimento da comunidade?</summary>
+        <div class="chips" style="margin-top:8px">${["Valores errados","Nome errado","Repetido","Não é alimento"].map(w => `<button class="chip" data-rep="${w}">${w}</button>`).join("")}</div>
+        <p class="note" style="margin:6px 0 0">O aviso vai para quem cuida do app revisar. Para usar valores diferentes, cadastre o seu.</p></details>` : ""}`);
     const gi = $("#g"), qi = $("#uq");
     if (qty) qi.value = fmtQ(qty);
     const curGrams = () => mode === "u" ? (unit ? (num(qi.value) || 0) * unit.g : 0) : (num(gi.value) || 0);
@@ -1311,6 +1542,8 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       if (!n || !g || g <= 0){ toast("Informe o nome e o peso da medida"); return; }
       const list = (S.units[food.key] = (S.units[food.key] || []).filter(u => u.n !== n));
       list.unshift({n, g:r1(g)}); touchSettings();
+      const cu = String(food.key).startsWith("c") && S.custom.find(c => "c" + c.id === food.key);
+      if (cu && cu.sid) shareCustom(cu, true);
       units = unitsFor(food); unit = units.find(u => u.n === n); qi.value = "1"; mode = "u";
       $("#unName").value = ""; $("#unG").value = ""; $("#uNewBox").open = false;
       drawUnits(); upd(); toast("Medida criada");
@@ -1346,6 +1579,11 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       if (pick){ sheetBack = null; pick(null); return; }
       const d = getDay(ui.day, true); d.items = d.items.filter(i => i.id !== edit.id);
       touchDay(ui.day); closeSheet(); render(); toast("Removido");
+    });
+    document.querySelectorAll("[data-rep]").forEach(b => b.onclick = async () => {
+      document.querySelectorAll("[data-rep]").forEach(x => x.disabled = true);
+      try{ await Community.report(food.key.slice(1), b.dataset.rep); toast("Aviso enviado. Obrigado!"); $("#repBox").open = false; }
+      catch(e){ toast("Sem internet agora. Tente mais tarde"); document.querySelectorAll("[data-rep]").forEach(x => x.disabled = false); }
     });
     $("#split")?.addEventListener("click", () => {
       const g = curGrams(), r = S.recipes.find(x => "r" + x.id === food.key);
@@ -1383,6 +1621,8 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       <div class="field"><label for="cuG">Quanto pesa (g)</label><input id="cuG" type="text" inputmode="decimal" placeholder="Ex.: 30"></div></div>
       <button class="btn ghost wide" id="cuAdd">+ Adicionar outra medida</button>
       <p class="note" style="margin:0">Cadastre quantas quiser (1 fatia, 1 scoop, 1 pote). Na hora de registrar, é só escolher.</p>
+      ${Community ? `<button class="chip share-tg" id="cshare" type="button"></button>
+      <p class="note" id="cshareNote" style="margin:0"></p>` : ""}
       <button class="btn wide" id="csave">${editing ? "Salvar alterações" : opts.fromSettings ? "Salvar alimento" : "Salvar e usar"}</button><button class="btn ghost wide" id="back">${opts.fromSettings ? "Cancelar" : "Voltar"}</button>`);
     $("#back").onclick = opts.fromSettings ? closeSheet : searchView;
     if (opts.name) $("#cn").value = String(opts.name).slice(0, 60);
@@ -1399,6 +1639,15 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       const i = meas.findIndex(u => u.n === uN); if (i >= 0) meas.splice(i, 1);
       meas.push({n:uN, g:r1(uG)}); $("#cuN").value = ""; $("#cuG").value = ""; drawMeas(); return true;
     };
+    let share = editing ? !!(editing.share || editing.sid) : S.shareNew !== false;
+    const drawShare = () => {
+      if (!$("#cshare")) return;
+      $("#cshare").setAttribute("aria-pressed", String(share));
+      $("#cshare").textContent = share ? "✓ Compartilhar com a comunidade" : "Só no meu celular";
+      $("#cshareNote").textContent = share ? "Quem usa o Muscle Land vai poder usar este alimento. Só você pode editar ou tirar." : "Ninguém mais vê este alimento.";
+    };
+    $("#cshare")?.addEventListener("click", () => { share = !share; drawShare(); });
+    drawShare();
     $("#cuAdd").onclick = () => { if (!$("#cuN").value.trim() && !$("#cuG").value.trim()){ $("#cuN").focus(); return; } if (takeMeas()) toast("Medida adicionada"); };
     drawMeas();
     if (editing){
@@ -1466,6 +1715,7 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       if (meas.length) S.units[key] = meas; else delete S.units[key];
       if (!editing) S.custom.unshift(item);
       touchSettings();
+      if (Community){ if (share) shareCustom(item).then(() => { if (ui.tab === "ajustes" && !$("#sheetRoot").innerHTML) render(); }); else if (item.sid || item.share) unshareCustom(item); }
       if (opts.fromSettings){ closeSheet(); render(); toast(editing ? "Alimento atualizado" : "Alimento cadastrado"); return; }
       food = findFood(key); grams = servingG || por; qtyView();
     };
@@ -2373,9 +2623,20 @@ function renderAjustes(){
       : `<p class="note" style="margin:0">Junte ingredientes, diga quantas porções rende e o app calcula os macros de cada porção. A receita aparece na busca de alimentos e pode entrar em outras receitas.</p>`}
     <button class="newmeal" id="rcNew" style="margin-top:10px">+ Criar receita</button></section>`;
   html += secH("Meus alimentos", S.custom.length ? `${S.custom.length} cadastrados` : "", true) + `<section class="panel">
-    ${S.custom.length ? `<ul class="list-edit">${S.custom.map(c => `<li><span>${esc(foodLabel(c))} <small class="muted num">· ${r0(c.k)} kcal · P ${fmt1(c.p)} · C ${fmt1(c.c)} · G ${fmt1(c.f)} por 100 g${c.bc ? " · código de barras" : ""}</small></span><button class="add" data-cfe="${c.id}">Editar</button><button class="mini del" data-cfrm="${c.id}" aria-label="Apagar ${esc(c.n)}">×</button></li>`).join("")}</ul>`
+    ${S.custom.length ? `<ul class="list-edit">${S.custom.map(c => `<li><span>${esc(foodLabel(c))} <small class="muted num">· ${r0(c.k)} kcal · P ${fmt1(c.p)} · C ${fmt1(c.c)} · G ${fmt1(c.f)} por 100 g${c.bc ? " · código de barras" : ""}${c.sid ? " · na comunidade" : c.pend ? " · compartilha quando tiver internet" : ""}</small></span><button class="add" data-cfe="${c.id}">Editar</button><button class="mini del" data-cfrm="${c.id}" aria-label="Apagar ${esc(c.n)}">×</button></li>`).join("")}</ul>`
       : `<p class="note" style="margin:0">Alimentos que você cadastrar pelo rótulo ou pelo código de barras aparecem aqui para editar ou apagar.</p>`}
     <button class="newmeal" id="cfNew" style="margin-top:10px">+ Cadastrar novo alimento</button></section>`;
+  if (Community){
+    const mineShared = S.custom.filter(c => c.sid).length, notShared = S.custom.filter(c => !c.sid && !c.share).length, last = Community.lastSync();
+    html += secH("Comunidade", `${Community.count().toLocaleString("pt-BR")} ${Community.count() === 1 ? "alimento" : "alimentos"}`, true) + `<section class="panel stack">
+      <p class="note" style="margin:0">Alimentos cadastrados por quem usa o Muscle Land aparecem na sua busca, com a etiqueta "comunidade". Os que você compartilha aparecem para todos, e só você pode editar ou tirar.</p>
+      <p class="note" style="margin:0">Compartilhados por você: <b class="num" style="color:var(--ink)">${mineShared}</b>${notShared ? ` · só no seu celular: <b class="num" style="color:var(--ink)">${notShared}</b>` : ""}</p>
+      ${notShared ? `<button class="btn blue wide" id="comAll">Compartilhar meus ${notShared} ${notShared === 1 ? "alimento" : "alimentos"}</button>` : ""}
+      <button class="chip share-tg" id="comDef" aria-pressed="${S.shareNew !== false}">${S.shareNew !== false ? "✓ Compartilhar novos cadastros" : "Novos cadastros só no meu celular"}</button>
+      <button class="btn ghost wide" id="comSync">Atualizar agora</button>
+      <p class="note" style="margin:0">${last ? `Atualizado ${new Date(last).toLocaleString("pt-BR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"})}.` : "Ainda não atualizado neste celular."} Nada pessoal vai junto: só nome, marca, valores e medidas do alimento.</p>
+    </section>`;
+  }
   html += `<h2 class="sec b" id="progSec"><span class="t">Programa de treino</span></h2><section class="panel"><div class="grid2">
     <div class="field"><label for="sDays">Dias por semana</label><select id="sDays">${[2,3,4,5,6].map(v => `<option ${S.days==v?"selected":""}>${v}</option>`).join("")}</select></div>
     <div class="field"><label for="sLvl">Nível</label><select id="sLvl">${[["ini","Iniciante"],["int","Intermediário"],["avc","Avançado"]].map(([v,l]) => `<option value="${v}" ${S.level===v?"selected":""}>${l}</option>`).join("")}</select></div></div>
@@ -2418,6 +2679,19 @@ function renderAjustes(){
   view.querySelectorAll("[data-svrm]").forEach(b => b.onclick = () => { S.saved = S.saved.filter(s => s.id !== b.dataset.svrm); touchSettings(); render(); toast("Refeição pronta apagada"); });
   $("#newMeal2").onclick = openNewMeal;
   $("#cfNew").onclick = () => openFoodSheet({meal: S.meals[0] && S.meals[0].id, newFood: true});
+  $("#comAll")?.addEventListener("click", async () => {
+    const list = S.custom.filter(c => !c.sid && !c.share); $("#comAll").disabled = true; $("#comAll").textContent = "Compartilhando…";
+    await communitySync(true);
+    for (const c of list) await shareCustom(c, true);
+    const ok = list.filter(c => c.sid).length, wait = list.filter(c => c.pend).length;
+    render(); toast(ok ? `${ok} compartilhados${wait ? `, ${wait} quando tiver internet` : ""}` : wait ? "Sem internet: compartilho quando a conexão voltar" : "Já estavam na comunidade");
+  });
+  $("#comDef")?.addEventListener("click", () => { S.shareNew = S.shareNew === false; touchSettings(); render(); });
+  $("#comSync")?.addEventListener("click", async () => {
+    $("#comSync").disabled = true; $("#comSync").textContent = "Atualizando…";
+    const before = Community.count(); await communitySync(true); render();
+    const diff = Community.count() - before; toast(diff > 0 ? `${diff} ${diff === 1 ? "alimento novo" : "alimentos novos"} da comunidade` : "Tudo em dia");
+  });
   $("#rcNew").onclick = () => openRecipeEditor({n:"", items:[], servings:1, unit:"porção"});
   view.querySelectorAll("[data-rce]").forEach(b => b.onclick = () => editRecipe(b.dataset.rce));
   view.querySelectorAll("[data-rcrm]").forEach(b => b.onclick = () => {
@@ -2429,9 +2703,13 @@ function renderAjustes(){
   view.querySelectorAll("[data-cfe]").forEach(b => b.onclick = () => openFoodSheet({meal: S.meals[0] && S.meals[0].id, editFood: b.dataset.cfe}));
   view.querySelectorAll("[data-cfrm]").forEach(b => b.onclick = () => {
     const i = S.custom.findIndex(c => c.id === b.dataset.cfrm); if (i < 0) return;
-    const [gone] = S.custom.splice(i, 1), key = "c" + gone.id, units = S.units[key];
+    const [gone] = S.custom.splice(i, 1), key = "c" + gone.id, units = S.units[key], wasShared = !!(gone.sid || gone.share);
+    if (wasShared){ const sid = gone.sid; unshareCustom(gone); gone.sid = sid; }
     delete S.units[key]; S.recent = S.recent.filter(x => x !== key); touchSettings(); render();
-    toast(`${gone.n} apagado`, {label:"Desfazer", fn: () => { S.custom.splice(i, 0, gone); if (units) S.units[key] = units; touchSettings(); render(); }});
+    toast(`${gone.n} apagado`, {label:"Desfazer", fn: () => {
+      S.custom.splice(i, 0, gone); if (units) S.units[key] = units;
+      if (wasShared){ S.comDel = (S.comDel || []).filter(x => x !== gone.sid); shareCustom(gone, true); }
+      touchSettings(); render(); }});
   });
   $("#sDays").onchange = e => { S.days = +e.target.value; S.program = recommendProgram(S.days, S.level); touchSettings(); render(); };
   $("#sLvl").onchange = e => { S.level = e.target.value; S.program = recommendProgram(S.days, S.level); touchSettings(); render(); };
@@ -2512,7 +2790,7 @@ function toast(msg, action){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "13/10/2026 07:38";
+const APP_BUILD = "14/10/2026 14:51";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
@@ -2584,6 +2862,7 @@ setSync("", "no celular");
 loadLocal();
 render();
 initCloud();
+if (Community){ setTimeout(() => communitySync(), 1200); window.addEventListener("online", () => communitySync(true)); }
 </script>
 </body>
 </html>
