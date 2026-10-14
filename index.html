@@ -393,7 +393,6 @@ details summary{cursor:pointer;color:var(--blue-hot);font-weight:700;font-size:1
 
 <div id="sheetRoot"></div>
 
-<script src="vendor/chart.umd.js"></script>
 <script>
 "use strict";
 /* ================= Base de alimentos (TACO 4ª ed., NEPA/Unicamp) ================= */
@@ -1651,7 +1650,12 @@ function render(){
   document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === ui.tab)));
   ({hoje:renderHoje, treino:renderTreino, corpo:renderCorpo, evolucao:renderEvolucao, ajustes:renderAjustes})[ui.tab]();
 }
-document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => { ui.tab = b.dataset.tab; render(); window.scrollTo({top:0}); }));
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
+  ui.tab = b.dataset.tab;
+  if (ui.tab !== "hoje" && !nav.tab && !nav.sheet){ nav.tab = true; history.pushState({ml:"tab"}, ""); } // voltar leva para a Dieta
+  else if (ui.tab === "hoje" && nav.tab && !nav.sheet){ nav.tab = false; nav.skip++; history.back(); }
+  render(); window.scrollTo({top:0});
+}));
 const secH = (t, small, blue) => `<h2 class="sec${blue?" b":""}"><span class="t">${t}</span>${small?`<small>${small}</small>`:""}</h2>`;
 function dateBar(k, todayLabel){
   const dt = dateOf(k), isToday = k === todayKey();
@@ -1854,9 +1858,22 @@ function bindSwipe(k){
 /* ================= Folhas (modais) ================= */
 // sheetBack: o que fazer quando a pessoa fecha a folha (×, fundo ou Esc). Usado para voltar à receita.
 let sheetBack = null;
-function closeSheet(){ sheetBack = null; $("#sheetRoot").innerHTML = ""; document.body.style.overflow = ""; }
+const nav = {sheet:false, tab:false, skip:0, pending:null};
+function closeSheet(){
+  sheetBack = null; $("#sheetRoot").innerHTML = ""; document.body.style.overflow = "";
+  // tira do histórico o passo que a folha criou (se outra folha abrir logo em seguida, reaproveita o passo)
+  if (nav.sheet && !nav.pending) nav.pending = setTimeout(() => { nav.pending = null; if (nav.sheet && !$("#sheetRoot").innerHTML){ nav.sheet = false; nav.skip++; history.back(); } }, 0);
+}
+window.addEventListener("popstate", () => {
+  if (nav.skip){ nav.skip--; return; }
+  if (nav.sheet){ nav.sheet = false; if (document.activeElement) document.activeElement.blur(); if ($("#sheetRoot").innerHTML) dismissSheet(); return; }
+  const ov = $(".consent"); if (ov){ ov.querySelector("#aiNo")?.click(); return; }
+  if (nav.tab){ nav.tab = false; if (ui.tab !== "hoje"){ ui.tab = "hoje"; render(); window.scrollTo({top:0}); } }
+});
 function dismissSheet(){ const b = sheetBack; sheetBack = null; if (b) b(); else closeSheet(); }
 function openSheet(html){
+  if (nav.pending){ clearTimeout(nav.pending); nav.pending = null; }
+  if (!nav.sheet){ nav.sheet = true; history.pushState({ml:"sheet"}, ""); }
   $("#sheetRoot").innerHTML = `<div class="scrim"></div><div class="sheet" role="dialog" aria-modal="true"><div class="inner">${html}</div></div>`;
   document.body.style.overflow = "hidden";
   $("#sheetRoot .scrim").onclick = dismissSheet;
@@ -3446,8 +3463,14 @@ function renderCorpo(){
 }
 
 /* ================= Evolução ================= */
+let chartP = null;
 function chartBase(){
-  if (!window.Chart) return null;
+  if (!window.Chart){
+    // carrega a biblioteca de gráficos só quando alguém abre uma aba com gráfico
+    if (!chartP) chartP = new Promise(res => { const sc = document.createElement("script"); sc.src = "vendor/chart.umd.js"; sc.onload = res; sc.onerror = () => { chartP = null; res(); }; document.head.appendChild(sc); })
+      .then(() => { if (window.Chart && (ui.tab === "evolucao" || ui.tab === "corpo") && !$("#sheetRoot").innerHTML) render(); });
+    return null;
+  }
   Chart.defaults.color = "#8e8c96";
   Chart.defaults.borderColor = "#24242e";
   Chart.defaults.font.family = '"Barlow Semi Condensed", system-ui, sans-serif';
@@ -3931,7 +3954,7 @@ function bindReminders(){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "14/10/2026 18:24";
+const APP_BUILD = "14/10/2026 18:41";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
