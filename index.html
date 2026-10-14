@@ -1697,6 +1697,7 @@ function renderHoje(){
   if (!S.setup){
     html += `<section class="panel red banner"><p><strong>Comece pelo seu perfil.</strong> As metas abaixo usam um perfil de exemplo (80 kg, 175 cm, 30 anos). Ajuste para calcular as suas.</p><button class="btn" id="goSetup">Configurar perfil</button></section><div style="height:12px"></div>`;
   }
+  if (typeof oldAppBanner === "function") html += oldAppBanner();
   if (typeof backupBanner === "function") html += backupBanner();
   html += dateBar(k, "Hoje");
   html += `<section class="panel" style="margin-top:12px">
@@ -3930,7 +3931,7 @@ function bindReminders(){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "14/10/2026 18:16";
+const APP_BUILD = "14/10/2026 18:24";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
@@ -3961,6 +3962,14 @@ const isStandalone = () => matchMedia("(display-mode: standalone)").matches || n
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
 function hasData(){ return Object.keys(M).length > 0; }
 function daysSinceBackup(){ return S.lastBackup ? Math.floor((Date.now() - S.lastBackup) / 86400000) : null; }
+// Instalação antiga (app "Ciclo de Ferro" ou outro pacote): nome e ícone ficam presos no app instalado
+function oldAppBanner(){
+  const ref = document.referrer || "", app = /^android-app:\/\/([^/]+)/.exec(ref);
+  try{ if (app) sessionStorage.setItem("ml.pkg", app[1]); }catch(e){}
+  let pkg = app ? app[1] : null; try{ pkg = pkg || sessionStorage.getItem("ml.pkg"); }catch(e){}
+  if (!pkg || pkg === "io.github.ezequieldaril19.muscleland") return "";
+  return `<section class="panel red" style="margin-bottom:12px"><p style="margin:0 0 8px;font-size:15px"><b>Você está na versão antiga do app.</b> Instale o Muscle Land para ter o nome e o ícone novos e os lembretes. Seus dados continuam.</p><a class="btn" href="baixar.html" style="display:block;text-align:center;text-decoration:none">Baixar o Muscle Land</a></section>`;
+}
 function backupBanner(){
   if (!hasData() || (typeof Cloud !== "undefined" && Cloud.ready)) return "";
   const d = daysSinceBackup();
