@@ -1772,8 +1772,11 @@ function renderHoje(){
   bindSwipe(k);
   view.querySelectorAll("[data-paste]").forEach(b => b.onclick = () => {
     const dd = getDay(k, true), to = b.dataset.paste;
-    ui.clip.items.forEach(i => dd.items.push({...i, ...(i.u ? {u:{...i.u}} : {}), id:uid(), m:to}));
-    touchDay(k); render(); toast(`${ui.clip.items.length} ${ui.clip.items.length === 1 ? "item colado" : "itens colados"} em ${mealName(to)}`);
+    const clip = ui.clip, ids = clip.items.map(() => uid());
+    clip.items.forEach((i, x) => dd.items.push({...i, ...(i.u ? {u:{...i.u}} : {}), id:ids[x], m:to}));
+    ui.clip = null; // colou: a opção de colar some
+    touchDay(k); render();
+    toast(`${clip.items.length} ${clip.items.length === 1 ? "item colado" : "itens colados"} em ${mealName(to)}`, {label:"Desfazer", fn: () => { const d2 = getDay(k, false); if (d2){ d2.items = d2.items.filter(i => !ids.includes(i.id)); } ui.clip = clip; touchDay(k); render(); }});
   });
   $("#clipX")?.addEventListener("click", () => { ui.clip = null; render(); });
   $("#copyDay")?.addEventListener("click", () => {
@@ -3954,7 +3957,7 @@ function bindReminders(){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "14/10/2026 18:41";
+const APP_BUILD = "14/10/2026 19:05";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
