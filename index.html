@@ -228,6 +228,9 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .mini.wu{font-family:var(--f-impact);color:var(--hazard)}
 .plates{display:flex;align-items:center;gap:3px;min-height:60px;padding:6px 0}
 .plates .pl{display:flex;align-items:center;justify-content:center;width:26px;background:var(--red);font-size:11px;font-weight:700;writing-mode:vertical-rl;transform:rotate(180deg)}
+.tag-com{display:inline-block;background:var(--panel-2);border:1px solid var(--line-2);color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:0 5px;vertical-align:2px}
+.ver{color:var(--ok)}
+.mini.on{color:var(--hazard)}
 .tag-rec{display:inline-block;background:var(--blue);color:#fff;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:1px 5px;vertical-align:2px}
 .rc-items li .add{padding:5px 9px 4px;font-size:13px}
 .stepper{display:grid;grid-template-columns:52px 1fr 52px;gap:8px;align-items:center}
@@ -478,6 +481,7 @@ const DEFAULT_SETTINGS = () => ({
   meals: DEFAULT_MEALS.map(m => ({...m})), saved:[], customEx:[], myWo:[], units:{}, lastUnit:{}, tipSwipe:false,
   custom:[], recipes:[], recent:[], shareNew:true, comDel:[],
   rest:90, autoRest:true, bar:20,
+  voted:[],
   adaptive:true, tdeeHist:{}, fav:[], recentM:{}, showWater:true, waterGoal:null, showFast:false, fast:null, fastGoal:16, showMicro:true,
   t:0
 });
@@ -499,6 +503,7 @@ function mergeSettings(raw){
   if (!Array.isArray(s.comDel)) s.comDel = [];
   if (!s.tdeeHist || typeof s.tdeeHist !== "object") s.tdeeHist = {};
   if (!Array.isArray(s.fav)) s.fav = [];
+  if (!Array.isArray(s.voted)) s.voted = [];
   if (!s.recentM || typeof s.recentM !== "object") s.recentM = {};
   return s;
 }
@@ -675,8 +680,8 @@ function microOf(key){
   if (key[0] === "t"){ const f = foodIdx.get(key); return f ? {fb:f.fib, na:f.na} : null; }
   if (key[0] === "c"){ const c = S.custom.find(x => "c" + x.id === key); return c && (c.fb != null || c.na != null) ? {fb:c.fb, na:c.na} : null; }
   if (key[0] === "s" && Community){ const d = Community.items()[key.slice(1)]; return d && (d.fb != null || d.na != null) ? {fb:d.fb, na:d.na} : null; }
-  if (key[0] === "r"){
-    const r = S.recipes.find(x => "r" + x.id === key); if (!r || !r.items.length) return null;
+  if (key[0] === "r" || key[0] === "p"){
+    const r = recipeByKey(key); if (!r || !r.items.length) return null;
     const c = recipeCalc(r); let fb = 0, na = 0, okF = false, okN = false;
     r.items.forEach(i => { const m = i.key !== key && microOf(i.key); if (m){ if (m.fb != null){ fb += m.fb*i.g/100; okF = true; } if (m.na != null){ na += m.na*i.g/100; okN = true; } } });
     return c.W ? {fb: okF ? fb*100/c.W : null, na: okN ? na*100/c.W : null} : null;
@@ -740,6 +745,22 @@ function recipeCalc(r){
   return {t, W, s, portionG: W/s, per100: per(100), portion: per(W/s), unit: r.unit || "porção"};
 }
 const foodLabel = c => c.b ? `${c.n} · ${c.b}` : c.n;
+// receita pela chave: "r" = minha, "p" = da comunidade
+function recipeByKey(key){
+  key = String(key || "");
+  if (key[0] === "r") return S.recipes.find(x => "r" + x.id === key) || null;
+  if (key[0] === "p" && Community){ const r = Community.coll("recipes")[key.slice(1)]; return r ? {...r, id:key.slice(1)} : null; }
+  return null;
+}
+const isRecipeKey = k => /^[rp]/.test(String(k || ""));
+function communityRecipes(){
+  if (!Community) return [];
+  const mine = new Set(S.recipes.map(r => r.sid).filter(Boolean)), me = Community.uid();
+  return Object.entries(Community.coll("recipes")).filter(([id, r]) => !mine.has(id) && r.items && r.items.length).map(([id, r]) => {
+    const c = recipeCalc(r);
+    return {key:"p"+id, n:r.n, cat:"Receitas da comunidade", src:3, k:r1(c.per100.k), p:r1(c.per100.p), c:r1(c.per100.c), f:r1(c.per100.f), nn:norm(r.n), recipe:true, shared:true, own: !!me && r.uid === me};
+  });
+}
 function recipeFood(r){
   const c = recipeCalc(r), n = r.n;
   return {key:"r"+r.id, n, cat:"Minhas receitas", k:r1(c.per100.k), p:r1(c.per100.p), c:r1(c.per100.c), f:r1(c.per100.f), nn:norm(n), mine:true, recipe:true};
@@ -750,17 +771,17 @@ function myRecipes(){ return S.recipes.filter(r => r.items && r.items.length).ma
 let comMemo = {sig:"", list:[]};
 function communityFoods(){
   if (!Community) return [];
-  const sig = `${Community.lastSync()}:${Community.count()}:${S.custom.length}:${S.t}`;
+  const sig = `${Community.lastSync()}:${Community.count()}:${S.custom.length}:${S.t}:${S.voted.length}`;
   if (comMemo.sig === sig) return comMemo.list;
   const me = Community.uid();
   const sids = new Set(S.custom.map(c => c.sid).filter(Boolean)), bcs = new Set(S.custom.map(c => c.bc).filter(Boolean)), names = new Set(S.custom.map(c => norm(foodLabel(c))));
   const list = Object.entries(Community.items()).filter(([id, d]) => !sids.has(id) && !(d.bc && bcs.has(d.bc)) && !names.has(norm(foodLabel(d))))
-    .map(([id, d]) => { const n = foodLabel(d); return {key:"s"+id, sid:id, n, cat:"Comunidade", src:3, k:d.k, p:d.p, c:d.c, f:d.f, nn:norm(n), shared:true, own: !!me && d.uid === me}; });
+    .map(([id, d]) => { const n = foodLabel(d), v = Community.votes(id); return {key:"s"+id, sid:id, n, cat:"Comunidade", src:3, k:d.k, p:d.p, c:d.c, f:d.f, nn:norm(n), shared:true, own: !!me && d.uid === me, votes:v, ver:v >= 2}; });
   comMemo = {sig, list};
   return list;
 }
-function allFoods(){ return myRecipes().concat(myFoods(), communityFoods(), FOODS); }
-const sharePayload = c => ({n:c.n, b:c.b || "", k:c.k, p:c.p, c:c.c, f:c.f, por:c.por || 0, bc:c.bc || "", u:(S.units["c" + c.id] || []).slice(0, 6)});
+function allFoods(){ return myRecipes().concat(myFoods(), communityFoods(), communityRecipes(), FOODS); }
+const sharePayload = c => ({n:c.n, b:c.b || "", k:c.k, p:c.p, c:c.c, f:c.f, fb:c.fb, na:c.na, por:c.por || 0, bc:c.bc || "", u:(S.units["c" + c.id] || []).slice(0, 6)});
 async function shareCustom(c, quiet){
   if (!Community) return;
   c.share = true; delete c.pend;
@@ -789,7 +810,7 @@ async function communitySync(force){
   try{ n = await Community.sync(force); }catch(e){ return 0; }
   for (const c of S.custom.filter(c => c.pend)) await shareCustom(c, true);
   for (const sid of (S.comDel || []).slice()){
-    try{ await Community.remove(sid); S.comDel = S.comDel.filter(x => x !== sid); touchSettings(); }
+    try{ const [coll, id] = sid.includes(":") ? sid.split(":") : ["foods", sid]; await Community.removeDoc(coll, id); S.comDel = S.comDel.filter(x => x !== sid); touchSettings(); }
     catch(e){ if (e && e.status >= 400 && e.status < 500 && e.status !== 401){ S.comDel = S.comDel.filter(x => x !== sid); touchSettings(); } }
   }
   if (n){ if ($("#q") && ui.redrawSearch) ui.redrawSearch(); else if (!$("#sheetRoot").innerHTML) render(); }
@@ -799,7 +820,7 @@ function findFood(key){ return allFoods().find(f => f.key === key); }
 function searchFoods(q, scope){
   const words = norm(q).split(/[\s,]+/).filter(Boolean);
   if (scope === "mine" || scope === "rec" || scope === "com"){
-    const own = scope === "rec" ? myRecipes() : scope === "com" ? communityFoods() : myFoods();
+    const own = scope === "rec" ? myRecipes().concat(communityRecipes()) : scope === "com" ? communityFoods().concat(communityRecipes()) : myFoods();
     return words.length ? own.filter(f => words.every(w => f.nn.includes(w))) : own;
   }
   const list = allFoods();
@@ -810,7 +831,7 @@ function searchFoods(q, scope){
   const hits = list.filter(f => words.every(w => f.nn.includes(w)));
   const first = words[0];
   const pop = f => POPULAR.some(x => f.nn.includes(x)) ? 1 : 0;
-  hits.sort((a,b) => (b.mine?1:0)-(a.mine?1:0) || pop(b)-pop(a) || (b.nn.startsWith(first)?1:0)-(a.nn.startsWith(first)?1:0) || (a.src||0)-(b.src||0) || a.n.length-b.n.length);
+  hits.sort((a,b) => (b.mine?1:0)-(a.mine?1:0) || (b.ver?1:0)-(a.ver?1:0) || pop(b)-pop(a) || (b.nn.startsWith(first)?1:0)-(a.nn.startsWith(first)?1:0) || (a.src||0)-(b.src||0) || a.n.length-b.n.length);
   return hits.slice(0,60);
 }
 /* ================= Medidas caseiras (valores aproximados) ================= */
@@ -948,7 +969,7 @@ function unitsFor(food){
   (S.units[food.key] || []).forEach(u => out.push({n:u.n, g:u.g, mine:true}));
   const cu = String(food.key || "").startsWith("c") && S.custom.find(c => "c" + c.id === food.key);
   if (cu && cu.por && Math.abs(cu.por - 100) > 0.01 && !out.some(o => Math.abs(o.g - cu.por) < 0.01)) out.push({n:`porção do rótulo`, g:cu.por});
-  const rc = String(food.key || "").startsWith("r") && S.recipes.find(r => "r" + r.id === food.key);
+  const rc = isRecipeKey(food.key) && recipeByKey(food.key);
   if (rc && rc.items.length){
     const c = recipeCalc(rc);
     if (!out.some(o => o.n === c.unit)) out.unshift({n:c.unit, g:r1(c.portionG), mine:true});
@@ -959,7 +980,7 @@ function unitsFor(food){
     sh.u.forEach(u => { if (!out.some(o => o.n === u.n)) out.push({n:u.n, g:u.g, mine:true}); });
     if (sh.por && Math.abs(sh.por - 100) > 0.01 && !out.some(o => Math.abs(o.g - sh.por) < 0.01)) out.push({n:"porção do rótulo", g:sh.por});
   }
-  if (/^[crs]/.test(String(food.key || ""))) return out; // alimento seu, receita ou da comunidade: só as medidas cadastradas
+  if (/^[crsp]/.test(String(food.key || ""))) return out; // alimento seu, receita ou da comunidade: só as medidas cadastradas
   const nn = food.nn || norm(food.n);
   const rule = MEASURES.find(([re]) => re.test(nn));
   if (rule) rule[1].forEach(([n, g]) => { if (!out.some(o => o.n === n)) out.push({n, g}); });
@@ -1092,16 +1113,22 @@ async function remoteSearch(q){
 }
 
 
-// Base da comunidade (Firebase Firestore via REST): alimentos cadastrados por qualquer usuário, visíveis para todos.
+// Base da comunidade (Firebase Firestore via REST): alimentos, receitas e treinos que os usuários compartilham.
 // Login anônimo do Firebase: não pede nome nem e-mail; só identifica quem pode editar cada cadastro.
 const Community = (() => {
-  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com"};
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211"};
   if (!CFG || !CFG.apiKey || !CFG.projectId) return null;
   const LS = "muscleLand.community", AU = "muscleLand.auth";
-  const DOCS = `${CFG.fs}/v1/projects/${CFG.projectId}/databases/(default)/documents`;
-  const NAME = id => `projects/${CFG.projectId}/databases/(default)/documents/foods/${id}`;
-  let cache = {t:"1970-01-01T00:00:00Z", items:{}, at:0};
-  try{ const c = JSON.parse(localStorage.getItem(LS) || "null"); if (c && c.items) cache = c; }catch(e){}
+  const ROOT = `projects/${CFG.projectId}/databases/(default)/documents`;
+  const DOCS = `${CFG.fs}/v1/${ROOT}`;
+  const COLLS = ["foods", "recipes", "workouts", "stats"];
+  const blank = () => ({t:"1970-01-01T00:00:00Z", items:{}});
+  let cache = {at:0, foods:blank(), recipes:blank(), workouts:blank(), stats:blank()};
+  try{
+    const c = JSON.parse(localStorage.getItem(LS) || "null");
+    if (c && c.items) cache.foods = {t:c.t, items:c.items}, cache.at = c.at || 0; // formato antigo (só alimentos)
+    else if (c && c.foods) cache = Object.assign(cache, c);
+  }catch(e){}
   let auth = null;
   try{ auth = JSON.parse(localStorage.getItem(AU) || "null"); }catch(e){}
   const save = () => { try{ localStorage.setItem(LS, JSON.stringify(cache)); }catch(e){} };
@@ -1112,7 +1139,7 @@ const Community = (() => {
     : typeof v === "boolean" ? {booleanValue:v}
     : typeof v === "number" ? (Number.isInteger(v) ? {integerValue:String(v)} : {doubleValue:v})
     : Array.isArray(v) ? {arrayValue:{values:v.map(enc)}}
-    : typeof v === "object" ? {mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k, x]) => [k, enc(x)]))}}
+    : typeof v === "object" ? {mapValue:{fields:Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, enc(x)]))}}
     : {stringValue:String(v)};
   const dec = v => {
     if (!v) return null;
@@ -1125,10 +1152,21 @@ const Community = (() => {
     if ("mapValue" in v) return Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, dec(x)]));
     return null;
   };
-  const clean = d => {
-    const n = x => { const v = Number(x); return isFinite(v) && v >= 0 ? v : 0; };
-    const u = Array.isArray(d.u) ? d.u.filter(x => x && typeof x.n === "string" && n(x.g) > 0).slice(0, 6).map(x => ({n:String(x.n).slice(0, 30).toLowerCase(), g:n(x.g)})) : [];
-    return {n:String(d.n || "").slice(0, 60), b:String(d.b || "").slice(0, 40), k:n(d.k), p:n(d.p), c:n(d.c), f:n(d.f), por:n(d.por), bc:String(d.bc || ""), u, uid:String(d.uid || ""), del:!!d.del};
+  const n0 = (x, hi) => { const v = Number(x); return isFinite(v) && v >= 0 ? Math.min(v, hi || 1e6) : 0; };
+  const str = (x, max) => String(x == null ? "" : x).slice(0, max);
+  const units = u => Array.isArray(u) ? u.filter(x => x && typeof x.n === "string" && n0(x.g) > 0).slice(0, 6).map(x => ({n:str(x.n, 30).toLowerCase(), g:n0(x.g, 5000)})) : [];
+  const clean = {
+    foods: d => {
+      const o = {n:str(d.n, 60), b:str(d.b, 40), k:n0(d.k, 900), p:n0(d.p, 100), c:n0(d.c, 100), f:n0(d.f, 100), por:n0(d.por, 2000), bc:str(d.bc, 14), u:units(d.u), uid:str(d.uid, 128)};
+      if (d.fb != null) o.fb = n0(d.fb, 100); if (d.na != null) o.na = n0(d.na, 50000);
+      return o;
+    },
+    recipes: d => ({n:str(d.n, 50), servings:n0(d.servings, 100) || 1, unit:str(d.unit, 24) || "porção", yieldG:n0(d.yieldG, 20000) || null, uid:str(d.uid, 128),
+      items:(Array.isArray(d.items) ? d.items : []).slice(0, 40).filter(i => i && i.n).map(i => ({key: /^t\d+$/.test(i.key) ? i.key : "x", n:str(i.n, 80), g:n0(i.g, 20000), k:n0(i.k, 900), p:n0(i.p, 100), c:n0(i.c, 100), f:n0(i.f, 100),
+        ...(i.u && i.u.n ? {u:{n:str(i.u.n, 30), q:n0(i.u.q, 1000) || 1, g:n0(i.u.g, 5000)}} : {})}))}),
+    workouts: d => ({n:str(d.n, 40), uid:str(d.uid, 128), t:d.t,
+      ex:(Array.isArray(d.ex) ? d.ex : []).slice(0, 30).filter(e => e && e.n).map(e => ({n:str(e.n, 60), sets:Math.max(1, Math.min(12, Math.round(n0(e.sets)) || 3)), reps: /^\d+$/.test(String(e.reps)) ? Number(e.reps) : str(e.reps || "10", 10)}))}),
+    stats: d => ({c:Math.round(n0(d.c, 1e6))})
   };
 
   // ---- login anônimo (token renovado sozinho)
@@ -1144,13 +1182,37 @@ const Community = (() => {
     auth = {uid:j.localId, id:j.idToken, refresh:j.refreshToken, exp:Date.now() + (Number(j.expiresIn) || 3600)*1000}; saveAuth();
     return auth.id;
   }
-  async function commit(write){
-    const tk = await token();
-    const r = await fetch(`${DOCS}:commit?key=${CFG.apiKey}`, {method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${tk}`}, body:JSON.stringify({writes:[write]})});
+  async function headers(){
+    const h = {"Content-Type":"application/json", Authorization:`Bearer ${await token()}`};
+    if (typeof appCheckToken === "function"){ const ac = await appCheckToken().catch(() => null); if (ac) h["X-Firebase-AppCheck"] = ac; }
+    return h;
+  }
+  async function commit(writes){
+    const r = await fetch(`${DOCS}:commit?key=${CFG.apiKey}`, {method:"POST", headers:await headers(), body:JSON.stringify({writes})});
     if (!r.ok){ const e = new Error("commit " + r.status); e.status = r.status; throw e; }
   }
 
   // ---- leitura incremental: só o que mudou desde a última vez
+  async function syncColl(coll){
+    let got = 0;
+    for (let page = 0; page < 40; page++){
+      const body = {structuredQuery:{from:[{collectionId:coll}], where:{fieldFilter:{field:{fieldPath:"t"}, op:"GREATER_THAN", value:{timestampValue:cache[coll].t}}}, orderBy:[{field:{fieldPath:"t"}, direction:"ASCENDING"}], limit:300}};
+      const h = {"Content-Type":"application/json"};
+      if (typeof appCheckToken === "function"){ const ac = await appCheckToken().catch(() => null); if (ac) h["X-Firebase-AppCheck"] = ac; }
+      const r = await fetch(`${DOCS}:runQuery?key=${CFG.apiKey}`, {method:"POST", headers:h, body:JSON.stringify(body)});
+      if (!r.ok) throw new Error("query " + r.status);
+      const rows = (await r.json()).filter(x => x.document);
+      rows.forEach(x => {
+        const id = x.document.name.split("/").pop(), f = x.document.fields || {};
+        const d = Object.fromEntries(Object.entries(f).map(([k, v]) => [k, dec(v)]));
+        if (d.t) cache[coll].t = d.t;
+        if (d.del) delete cache[coll].items[id]; else cache[coll].items[id] = clean[coll](d);
+        got++;
+      });
+      if (rows.length < 300) break;
+    }
+    return got;
+  }
   let syncing = null;
   async function sync(force){
     if (syncing) return syncing;
@@ -1158,54 +1220,57 @@ const Community = (() => {
     if (typeof navigator !== "undefined" && navigator.onLine === false) return 0;
     syncing = (async () => {
       let got = 0;
-      for (let page = 0; page < 40; page++){
-        const body = {structuredQuery:{from:[{collectionId:"foods"}], where:{fieldFilter:{field:{fieldPath:"t"}, op:"GREATER_THAN", value:{timestampValue:cache.t}}}, orderBy:[{field:{fieldPath:"t"}, direction:"ASCENDING"}], limit:300}};
-        const r = await fetch(`${DOCS}:runQuery?key=${CFG.apiKey}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
-        if (!r.ok) throw new Error("query " + r.status);
-        const rows = (await r.json()).filter(x => x.document);
-        rows.forEach(x => {
-          const id = x.document.name.split("/").pop(), f = x.document.fields || {};
-          const d = Object.fromEntries(Object.entries(f).map(([k, v]) => [k, dec(v)]));
-          if (d.t) cache.t = d.t;
-          if (d.del) delete cache.items[id]; else cache.items[id] = clean(d);
-          got++;
-        });
-        if (rows.length < 300) break;
-      }
+      for (const c of COLLS){ try{ got += await syncColl(c); }catch(e){ if (c === "foods") throw e; } }
       cache.at = Date.now(); save();
       return got;
     })().finally(() => { syncing = null; });
     return syncing;
   }
 
-  function fields(food){
-    const d = {n:food.n, b:food.b || "", k:food.k, p:food.p, c:food.c, f:food.f, por:food.por || 0, bc:food.bc || "", u:(food.u || []).slice(0, 6).map(x => ({n:x.n, g:x.g})), uid:auth.uid, del:false, v:1};
-    return Object.fromEntries(Object.entries(d).map(([k, v]) => [k, enc(v)]));
-  }
   const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(15)), b => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
   const stamp = [{fieldPath:"t", setToServerValue:"REQUEST_TIME"}];
-
+  const fieldsOf = obj => Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined).map(([k, v]) => [k, enc(v)]));
+  const payload = {
+    foods: f => { const d = {n:f.n, b:f.b || "", k:f.k, p:f.p, c:f.c, f:f.f, por:f.por || 0, bc:f.bc || "", u:(f.u || []).slice(0, 6).map(x => ({n:x.n, g:x.g}))};
+      if (f.fb != null) d.fb = f.fb; if (f.na != null) d.na = f.na; return d; },
+    recipes: r => ({n:r.n, items:r.items.slice(0, 40).map(i => ({key: /^t\d+$/.test(i.key) ? i.key : "x", n:i.n, g:i.g, k:i.k, p:i.p, c:i.c, f:i.f, ...(i.u ? {u:{n:i.u.n, q:i.u.q, g:i.u.g}} : {})})), servings:r.servings || 1, unit:r.unit || "porção", yieldG:r.yieldG || 0}),
+    workouts: w => ({n:w.n, ex:w.ex.slice(0, 30).map(e => ({n:e.n, sets:e.sets, reps:e.reps}))})
+  };
   // cria (sem id) ou atualiza (com id, só se o cadastro for seu)
-  async function publish(food, id){
+  async function publishDoc(coll, obj, id){
     await token();
     const fresh = !id; id = id || newId();
-    await commit({update:{name:NAME(id), fields:fields(food)}, updateTransforms:stamp, currentDocument:{exists:!fresh}});
-    cache.items[id] = clean({...food, uid:auth.uid}); save();
+    const data = {...payload[coll](obj), uid:auth.uid, del:false, v:1};
+    await commit([{update:{name:`${ROOT}/${coll}/${id}`, fields:fieldsOf(data)}, updateTransforms:stamp, currentDocument:{exists:!fresh}}]);
+    cache[coll].items[id] = clean[coll]({...data, t:new Date().toISOString()}); save();
     return id;
   }
-  async function remove(id){
+  async function removeDoc(coll, id){
     await token();
-    await commit({update:{name:NAME(id), fields:{del:enc(true)}}, updateMask:{fieldPaths:["del"]}, updateTransforms:stamp, currentDocument:{exists:true}});
-    delete cache.items[id]; save();
+    await commit([{update:{name:`${ROOT}/${coll}/${id}`, fields:{del:enc(true)}}, updateMask:{fieldPaths:["del"]}, updateTransforms:stamp, currentDocument:{exists:true}}]);
+    delete cache[coll].items[id]; save();
+  }
+  // confirmação "confere com o rótulo": cria o voto e soma 1 no contador, na mesma gravação
+  async function vote(fid){
+    await token();
+    await commit([
+      {update:{name:`${ROOT}/votes/${fid}_${auth.uid}`, fields:{fid:enc(fid), uid:enc(auth.uid)}}, updateTransforms:stamp, currentDocument:{exists:false}},
+      {update:{name:`${ROOT}/stats/${fid}`, fields:{}}, updateMask:{fieldPaths:[]}, updateTransforms:[{fieldPath:"c", increment:{integerValue:"1"}}, {fieldPath:"t", setToServerValue:"REQUEST_TIME"}]}
+    ]);
+    const s = cache.stats.items[fid] || {c:0}; cache.stats.items[fid] = {c:s.c + 1}; save();
   }
   async function report(fid, why){
     await token();
-    await commit({update:{name:`projects/${CFG.projectId}/databases/(default)/documents/reports/${newId()}`, fields:{fid:enc(fid), why:enc(String(why).slice(0, 200)), uid:enc(auth.uid)}}, updateTransforms:stamp, currentDocument:{exists:false}});
+    await commit([{update:{name:`${ROOT}/reports/${newId()}`, fields:{fid:enc(fid), why:enc(String(why).slice(0, 200)), uid:enc(auth.uid)}}, updateTransforms:stamp, currentDocument:{exists:false}}]);
   }
   return {
-    sync, publish, remove, report,
-    items: () => cache.items,
-    count: () => Object.keys(cache.items).length,
+    sync, report, vote, publishDoc, removeDoc,
+    publish: (food, id) => publishDoc("foods", food, id),
+    remove: id => removeDoc("foods", id),
+    items: () => cache.foods.items,
+    coll: name => cache[name].items,
+    votes: fid => (cache.stats.items[fid] || {c:0}).c,
+    count: () => Object.keys(cache.foods.items).length,
     uid: () => auth && auth.uid,
     lastSync: () => cache.at || 0
   };
@@ -1547,10 +1612,10 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
     };
     const foodRow = f => {
       if (f.recipe){
-        const r = S.recipes.find(x => "r" + x.id === f.key), c = recipeCalc(r);
-        return `<li><button data-k="${f.key}"><div class="rn">${esc(f.n)} <span class="tag-rec">receita</span></div><div class="rm num">${r0(c.portion.k)} kcal · P ${fmt1(c.portion.p)} · C ${fmt1(c.portion.c)} · G ${fmt1(c.portion.f)} <span style="color:var(--dim)">por ${esc(c.unit)} de ${fmtQ(r1(c.portionG))} g · rende ${fmtQ(c.s)}</span></div></button></li>`;
+        const r = recipeByKey(f.key), c = recipeCalc(r);
+        return `<li><button data-k="${f.key}"><div class="rn">${esc(f.n)} <span class="tag-rec">receita</span>${f.shared ? ` <span class="tag-com">comunidade</span>` : ""}</div><div class="rm num">${r0(c.portion.k)} kcal · P ${fmt1(c.portion.p)} · C ${fmt1(c.portion.c)} · G ${fmt1(c.portion.f)} <span style="color:var(--dim)">por ${esc(c.unit)} de ${fmtQ(r1(c.portionG))} g · rende ${fmtQ(c.s)}</span></div></button></li>`;
       }
-      return `<li><button data-k="${f.key}"><div class="rn">${esc(f.n)}</div><div class="rm num">${r0(f.k)} kcal · P ${fmt1(f.p)} · C ${fmt1(f.c)} · G ${fmt1(f.f)} <span style="color:var(--dim)">por 100 g${f.mine?" · seu":f.shared ? (f.own ? " · seu, na comunidade" : " · comunidade") : f.src === 2 ? " · IBGE" : ""}${(u => u ? ` · 1 ${u.n} = ${fmtQ(u.g)} g` : "")(unitsFor(f)[0])}</span></div></button></li>`;
+      return `<li><button data-k="${f.key}"><div class="rn">${esc(f.n)}</div><div class="rm num">${r0(f.k)} kcal · P ${fmt1(f.p)} · C ${fmt1(f.c)} · G ${fmt1(f.f)} <span style="color:var(--dim)">por 100 g${f.mine?" · seu":f.shared ? (f.own ? " · seu, na comunidade" : f.ver ? ` · <b class="ver">✓ verificado</b>` : " · comunidade") : f.src === 2 ? " · IBGE" : ""}${(u => u ? ` · 1 ${u.n} = ${fmtQ(u.g)} g` : "")(unitsFor(f)[0])}</span></div></button></li>`;
     };
     const draw = () => {
       const sc = scope;
@@ -1666,7 +1731,7 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
   }
   function qtyView(){
     const quick = [10,20,30,50,100,150,200];
-    const isRecipe = String(food.key || "").startsWith("r");
+    const isRecipe = isRecipeKey(food.key);
     const opts = S.meals.slice(); if (!opts.some(m => m.id === mealId)) opts.push({id:mealId, n:mealName(mealId)});
     let units = unitsFor(food);
     const last = food.key && S.lastUnit[food.key];
@@ -1703,6 +1768,9 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       ${isRecipe && !pick && !edit ? `<button class="btn blue wide" id="split">Adicionar ingredientes separados</button>` : ""}
       ${edit ? `<button class="btn ghost wide" id="del" style="color:var(--red-hot)">${pick ? "Remover da receita" : "Remover da refeição"}</button>` : `<button class="btn ghost wide" id="back">Voltar para a busca</button>`}
       ${pick && edit ? `<button class="btn ghost wide" id="pickBack">Voltar para a receita</button>` : ""}
+      ${Community && String(food.key || "").startsWith("s") && !edit && !food.own ? (S.voted.includes(food.key.slice(1)) ? `<p class="note" style="margin:0">Você confirmou os valores deste alimento.${(v => v ? ` ${v} ${v === 1 ? "pessoa confirmou" : "pessoas confirmaram"}.` : "")(Community.votes(food.key.slice(1)))}</p>`
+        : `<button class="btn ghost wide" id="voteBtn">✓ Confere com o rótulo</button><p class="note" style="margin:0">${(v => v >= 2 ? `<b class="ver">✓ Verificado</b>: ${v} pessoas confirmaram.` : v === 1 ? "1 pessoa já confirmou. Com 2, ganha o selo de verificado." : "Conferiu na embalagem? Com 2 confirmações, o alimento ganha o selo de verificado.")(Community.votes(food.key.slice(1)))}</p>`) : ""}
+      ${Community && String(food.key || "").startsWith("p") && !edit && !pick ? `<button class="btn ghost wide" id="copyRec">Guardar uma cópia em Minhas receitas</button>` : ""}
       ${Community && String(food.key || "").startsWith("s") && !edit ? `<details id="repBox"><summary>Algo errado neste alimento da comunidade?</summary>
         <div class="chips" style="margin-top:8px">${["Valores errados","Nome errado","Repetido","Não é alimento"].map(w => `<button class="chip" data-rep="${w}">${w}</button>`).join("")}</div>
         <p class="note" style="margin:6px 0 0">O aviso vai para quem cuida do app revisar. Para usar valores diferentes, cadastre o seu.</p></details>` : ""}`);
@@ -1784,13 +1852,23 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       const d = getDay(ui.day, true); d.items = d.items.filter(i => i.id !== edit.id);
       touchDay(ui.day); closeSheet(); render(); toast("Removido");
     });
+    $("#voteBtn")?.addEventListener("click", async () => {
+      const fid = food.key.slice(1), b = $("#voteBtn"); b.disabled = true; b.textContent = "Enviando…";
+      try{ await Community.vote(fid); S.voted.push(fid); touchSettings(); toast("Obrigado! Sua confirmação ajuda todo mundo"); b.outerHTML = `<p class="note" style="margin:0">Você confirmou os valores deste alimento.</p>`; }
+      catch(e){ if (e && e.status === 403){ S.voted.push(fid); touchSettings(); toast("Você já tinha confirmado este alimento"); b.remove(); } else { toast("Sem internet agora. Tente mais tarde"); b.disabled = false; b.textContent = "✓ Confere com o rótulo"; } }
+    });
+    $("#copyRec")?.addEventListener("click", () => {
+      const r = recipeByKey(food.key); if (!r) return;
+      S.recipes.unshift({id:uid(), n:r.n, items:r.items.map(i => ({...i, ...(i.u ? {u:{...i.u}} : {})})), servings:r.servings, unit:r.unit, ...(r.yieldG ? {yieldG:r.yieldG} : {})});
+      touchSettings(); toast("Receita guardada. Você pode editar a sua cópia");
+    });
     document.querySelectorAll("[data-rep]").forEach(b => b.onclick = async () => {
       document.querySelectorAll("[data-rep]").forEach(x => x.disabled = true);
       try{ await Community.report(food.key.slice(1), b.dataset.rep); toast("Aviso enviado. Obrigado!"); $("#repBox").open = false; }
       catch(e){ toast("Sem internet agora. Tente mais tarde"); document.querySelectorAll("[data-rep]").forEach(x => x.disabled = false); }
     });
     $("#split")?.addEventListener("click", () => {
-      const g = curGrams(), r = S.recipes.find(x => "r" + x.id === food.key);
+      const g = curGrams(), r = recipeByKey(food.key);
       if (!r || !g || g <= 0){ toast("Informe a quantidade"); return; }
       const fr = g / recipeCalc(r).W, k = ui.day, d = getDay(k, true), m = $("#ml").value;
       r.items.forEach(i => {
@@ -1951,6 +2029,7 @@ function openRecipeEditor(draft, opts = {}){
     </div>
     <p class="note" style="margin:0">Pese a receita pronta quando ela perde ou ganha água no preparo (carne, arroz, bolo). Assim cada grama que você registrar fica certa. Em branco, o app usa a soma dos ingredientes.</p>
     <div id="rcSum"></div>
+    ${Community ? `<button class="chip share-tg" id="rcShare" type="button" aria-pressed="${!!draft.share}">${draft.share ? "✓ Compartilhar com a comunidade" : "Só no meu celular"}</button>` : ""}
     <button class="btn wide" id="rcSave">${draft.id ? "Salvar receita" : opts.onSaved ? "Salvar e registrar" : "Salvar receita"}</button>
     ${draft.id ? `<button class="btn ghost wide" id="rcSend">Enviar receita por link</button><button class="btn ghost wide" id="rcDel" style="color:var(--red-hot)">Apagar receita</button>` : ""}`);
   const nI = $("#rcN"), sI = $("#rcS"), uI = $("#rcU"), yI = $("#rcY");
@@ -1982,6 +2061,7 @@ function openRecipeEditor(draft, opts = {}){
     });
   };
   [nI, sI, uI, yI].forEach(el => el.oninput = () => { draft.dirty = true; draw(); });
+  $("#rcShare")?.addEventListener("click", () => { draft.share = !draft.share; draft.dirty = true; $("#rcShare").setAttribute("aria-pressed", String(draft.share)); $("#rcShare").textContent = draft.share ? "✓ Compartilhar com a comunidade" : "Só no meu celular"; });
   draw();
   $("#rcAdd").onclick = () => {
     read();
@@ -1999,6 +2079,10 @@ function openRecipeEditor(draft, opts = {}){
     else { r = {id:uid(), ...data}; S.recipes.unshift(r); }
     const key = "r" + r.id;
     if (S.lastUnit[key] && S.lastUnit[key].mode === "u") S.lastUnit[key] = {mode:"u", n:r.unit, q:S.lastUnit[key].q || 1};
+    if (Community){
+      if (draft.share){ r.share = true; Community.publishDoc("recipes", r, r.sid).then(id => { r.sid = id; touchSettings(); }).catch(() => toast("Não deu para compartilhar agora. Tente de novo mais tarde")); }
+      else if (r.sid){ const sid = r.sid; delete r.sid; r.share = false; Community.removeDoc("recipes", sid).catch(() => { S.comDel = (S.comDel || []).concat("recipes:" + sid); }); }
+    }
     touchSettings(); closeSheet(); render();
     if (opts.onSaved && !draft.id) opts.onSaved(r); else toast(draft.id ? "Receita atualizada" : "Receita salva");
   };
@@ -2017,7 +2101,7 @@ function openRecipeEditor(draft, opts = {}){
 }
 function editRecipe(id){
   const r = S.recipes.find(x => x.id === id); if (!r) return;
-  openRecipeEditor({id:r.id, n:r.n, items:r.items.map(i => ({...i, ...(i.u ? {u:{...i.u}} : {})})), servings:r.servings, unit:r.unit, yieldG:r.yieldG || null});
+  openRecipeEditor({id:r.id, n:r.n, items:r.items.map(i => ({...i, ...(i.u ? {u:{...i.u}} : {})})), servings:r.servings, unit:r.unit, yieldG:r.yieldG || null, share:!!(r.sid || r.share)});
 }
 
 /* ================= Ferramentas de treino ================= */
@@ -2396,9 +2480,18 @@ function renderTreino(){
       <table class="mac"><tbody>${preview.ex.map(e => `<tr><td>${esc(e.n)}</td><td>${e.t}</td></tr>`).join("")}</tbody></table>
       <div class="row" style="margin-top:14px"><button class="btn grow" id="startWo">Começar treino</button><button class="btn ghost" id="chgProg">Trocar</button></div></section>`;
     html += secH("Montar meu treino", `${allExercises().length} exercícios`, true) + `<section class="panel">
-      ${S.myWo.length ? `<ul class="list-edit">${S.myWo.map(t => `<li><span>${esc(t.name)} <small class="muted">· ${t.ex.length} ${t.ex.length === 1 ? "exercício" : "exercícios"}</small></span><button class="add" data-tpl="${t.id}">Começar</button><button class="mini" data-tplsend="${t.id}" aria-label="Enviar ${esc(t.name)} por link" title="Enviar">↗</button><button class="mini del" data-tplrm="${t.id}" aria-label="Apagar ${esc(t.name)}">×</button></li>`).join("")}</ul>`
+      ${S.myWo.length ? `<ul class="list-edit">${S.myWo.map(t => `<li><span>${esc(t.name)} <small class="muted">· ${t.ex.length} ${t.ex.length === 1 ? "exercício" : "exercícios"}</small></span><button class="add" data-tpl="${t.id}">Começar</button>${Community ? `<button class="mini${t.sid ? " on" : ""}" data-tplpub="${t.id}" aria-label="${t.sid ? "Tirar da comunidade" : "Publicar na comunidade"}" title="${t.sid ? "Na comunidade" : "Publicar na comunidade"}">${t.sid ? "★" : "☆"}</button>` : ""}<button class="mini" data-tplsend="${t.id}" aria-label="Enviar ${esc(t.name)} por link" title="Enviar">↗</button><button class="mini del" data-tplrm="${t.id}" aria-label="Apagar ${esc(t.name)}">×</button></li>`).join("")}</ul>`
         : `<p class="note" style="margin:0 0 4px">Escolha os exercícios que quiser da lista completa, por grupo muscular. Depois salve o treino para repetir nos próximos dias.</p>`}
-      <button class="newmeal" id="freeWo" style="margin-top:10px">+ Treino livre</button></section>`;
+      <button class="newmeal" id="freeWo" style="margin-top:10px">+ Treino livre</button>
+      ${Community && S.myWo.length ? `<p class="note" style="margin:8px 0 0">☆ publica o treino na comunidade; ↗ manda por link.</p>` : ""}</section>`;
+    if (Community){
+      const mine = new Set(S.myWo.map(t => t.sid).filter(Boolean)), me = Community.uid();
+      const list = Object.entries(Community.coll("workouts")).filter(([id, w]) => !mine.has(id) && w.uid !== me).sort((a, b) => String(b[1].t || "").localeCompare(String(a[1].t || "")));
+      const shown = list.slice(0, ui.woMore ? 50 : 6);
+      html += secH("Treinos da comunidade", list.length ? `${list.length}` : "") + `<section class="panel">${list.length ? `<ul class="list-edit">${shown.map(([id, w]) => `<li><span>${esc(w.n)} <small class="muted">· ${w.ex.length} exercícios: ${esc(w.ex.slice(0, 3).map(e => e.n).join(", "))}${w.ex.length > 3 ? "…" : ""}</small></span><button class="add" data-cwo="${id}">Guardar</button></li>`).join("")}</ul>
+        ${list.length > shown.length ? `<button class="btn ghost wide" id="woMore" style="margin-top:8px">Ver mais ${list.length - shown.length}</button>` : ""}`
+        : `<p class="note" style="margin:0">Ninguém publicou treinos ainda. Salve um treino seu e toque em ☆ para ser o primeiro.</p>`}</section>`;
+    }
   } else {
     html += `<section class="panel" style="margin-top:12px"><div class="label">${esc(woLabel(wo))}${wo.done ? " · concluído" : ""}</div><div class="prog-name">${esc(wo.name)}</div>`;
     if (!wo.ex.length) html += `<p class="note" style="margin:6px 0 0">Nenhum exercício ainda. Toque em "Adicionar exercício" e escolha da lista.</p>`;
@@ -2439,6 +2532,20 @@ function renderTreino(){
     const dd = getDay(k, true); dd.wo = {prog:"meu", tpl:t.id, name:t.name, done:false, t0:Date.now(), ex:t.ex.map(e => exItem(e.n, e.sets, e.reps, k))};
     touchDay(k); render();
   });
+  view.querySelectorAll("[data-tplpub]").forEach(b => b.onclick = async () => {
+    const t = S.myWo.find(x => x.id === b.dataset.tplpub); if (!t) return;
+    b.disabled = true;
+    try{
+      if (t.sid){ await Community.removeDoc("workouts", t.sid); delete t.sid; toast("Treino tirado da comunidade"); }
+      else { t.sid = await Community.publishDoc("workouts", {n:t.name, ex:t.ex}); toast("Treino publicado na comunidade"); }
+      touchSettings(); render();
+    }catch(e){ b.disabled = false; toast(e && e.status === 403 ? "Não deu: confira o nome do treino" : "Sem internet agora. Tente mais tarde"); }
+  });
+  view.querySelectorAll("[data-cwo]").forEach(b => b.onclick = () => {
+    const w = Community.coll("workouts")[b.dataset.cwo]; if (!w) return;
+    S.myWo.push({id:uid(), name:w.n, ex:w.ex.map(e => ({n:e.n, sets:e.sets, reps:e.reps}))}); touchSettings(); render(); toast(`"${w.n}" guardado em Meus treinos`);
+  });
+  $("#woMore")?.addEventListener("click", () => { ui.woMore = true; render(); });
   view.querySelectorAll("[data-tplsend]").forEach(b => b.onclick = async () => { const t = S.myWo.find(x => x.id === b.dataset.tplsend); if (t) shareLink(await packLink("wo", {name:t.name, ex:t.ex}), t.name, `Treino "${t.name}" no Muscle Land:`); });
   view.querySelectorAll("[data-tplrm]").forEach(b => b.onclick = () => {
     S.myWo = S.myWo.filter(x => x.id !== b.dataset.tplrm); touchSettings(); render(); toast("Treino apagado");
@@ -3033,7 +3140,7 @@ function renderAjustes(){
   </section>`;
 
   html += secH("Minhas receitas", S.recipes.length ? `${S.recipes.length} salvas` : "") + `<section class="panel">
-    ${S.recipes.length ? `<ul class="list-edit">${S.recipes.map(r => { const c = recipeCalc(r); return `<li><span>${esc(r.n)} <small class="muted num">· ${r.items.length} ingredientes · rende ${fmtQ(c.s)} ${esc(unitName(c.unit, c.s))} · ${r0(c.portion.k)} kcal por ${esc(c.unit)}</small></span><button class="add" data-rce="${r.id}">Editar</button><button class="mini del" data-rcrm="${r.id}" aria-label="Apagar ${esc(r.n)}">×</button></li>`; }).join("")}</ul>`
+    ${S.recipes.length ? `<ul class="list-edit">${S.recipes.map(r => { const c = recipeCalc(r); return `<li><span>${esc(r.n)} <small class="muted num">· ${r.items.length} ingredientes${r.sid ? " · na comunidade" : ""} · rende ${fmtQ(c.s)} ${esc(unitName(c.unit, c.s))} · ${r0(c.portion.k)} kcal por ${esc(c.unit)}</small></span><button class="add" data-rce="${r.id}">Editar</button><button class="mini del" data-rcrm="${r.id}" aria-label="Apagar ${esc(r.n)}">×</button></li>`; }).join("")}</ul>`
       : `<p class="note" style="margin:0">Junte ingredientes, diga quantas porções rende e o app calcula os macros de cada porção. A receita aparece na busca de alimentos e pode entrar em outras receitas.</p>`}
     <button class="newmeal" id="rcNew" style="margin-top:10px">+ Criar receita</button></section>`;
   html += secH("Meus alimentos", S.custom.length ? `${S.custom.length} cadastrados` : "", true) + `<section class="panel">
@@ -3043,7 +3150,7 @@ function renderAjustes(){
   if (Community){
     const mineShared = S.custom.filter(c => c.sid).length, notShared = S.custom.filter(c => !c.sid && !c.share).length, last = Community.lastSync();
     html += secH("Comunidade", `${Community.count().toLocaleString("pt-BR")} ${Community.count() === 1 ? "alimento" : "alimentos"}`, true) + `<section class="panel stack">
-      <p class="note" style="margin:0">Alimentos cadastrados por quem usa o Muscle Land aparecem na sua busca, com a etiqueta "comunidade". Os que você compartilha aparecem para todos, e só você pode editar ou tirar.</p>
+      <p class="note" style="margin:0">Alimentos, receitas e treinos de quem usa o Muscle Land aparecem para você, com a etiqueta "comunidade". O que você compartilha aparece para todos, e só você pode editar ou tirar. Alimentos com 2 confirmações de "confere com o rótulo" ganham o selo ✓ verificado.</p>
       <p class="note" style="margin:0">Compartilhados por você: <b class="num" style="color:var(--ink)">${mineShared}</b>${notShared ? ` · só no seu celular: <b class="num" style="color:var(--ink)">${notShared}</b>` : ""}</p>
       ${notShared ? `<button class="btn blue wide" id="comAll">Compartilhar meus ${notShared} ${notShared === 1 ? "alimento" : "alimentos"}</button>` : ""}
       <button class="chip share-tg" id="comDef" aria-pressed="${S.shareNew !== false}">${S.shareNew !== false ? "✓ Compartilhar novos cadastros" : "Novos cadastros só no meu celular"}</button>
@@ -3217,7 +3324,7 @@ let toastQ = null;
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "14/10/2026 16:30";
+const APP_BUILD = "14/10/2026 16:52";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
