@@ -32,7 +32,7 @@ ul{padding-left:20px}
 <p>Você pode registrar no app:</p>
 <ul>
   <li>perfil para o cálculo de metas: sexo, idade, altura, peso, nível de atividade e objetivo;</li>
-  <li>alimentos e refeições consumidos, alimentos e receitas cadastrados por você;</li>
+  <li>alimentos e refeições consumidos, água e jejum, alimentos e receitas cadastrados por você;</li>
   <li>peso diário e medidas corporais (pescoço, cintura, quadril e outras);</li>
   <li>treinos, com cargas e repetições.</li>
 </ul>
@@ -47,6 +47,14 @@ ul{padding-left:20px}
   <li>um identificador anônimo criado pelo Firebase no seu aparelho, que serve só para que apenas você possa editar ou tirar esse cadastro.</li>
 </ul>
 <p>Esses alimentos ficam visíveis para todos que usam o Muscle Land. Não vão junto seu nome, e-mail, peso, medidas, refeições, treinos nem qualquer outro registro. Você pode desmarcar o compartilhamento ou apagar o alimento a qualquer momento, e ele sai da base da comunidade. Se você confirmar os valores de um alimento ou avisar um erro, a confirmação ou o aviso e o mesmo identificador anônimo são guardados. O tratamento pelo Google segue a <a href="https://firebase.google.com/support/privacy">política de privacidade do Firebase</a>.</p>
+
+<h2>Conta Google, backup e amigos (opcional)</h2>
+<p>Se você entrar com a conta Google em <b>Ajustes &gt; Conta e backup</b>, o app passa a guardar uma cópia dos seus registros (perfil, metas, refeições, peso, medidas, água, jejum e treinos) no Google Firebase, numa área que só a sua conta pode ler e gravar. Isso permite trocar de celular sem perder nada. O app recebe do Google o seu nome, e-mail e foto da conta, e usa só para mostrar quem está conectado.</p>
+<p>Para o desafio com amigos, o app cria um perfil com o seu <b>primeiro nome</b> e um <b>código de amigo</b>. Só as pessoas que você aceitar como amigas veem um resumo seu: primeiro nome, quantos treinos e dias de dieta você fez no mês e na semana, o volume de treino e o nome e a data do último treino. Peso, medidas e refeições não aparecem para ninguém.</p>
+<p>Você pode sair da conta a qualquer momento. Em <b>Excluir minha conta e meus dados da nuvem</b>, o app apaga o backup, o perfil, o resumo e a conta. Veja também <a href="excluir-conta.html">como excluir a conta</a>.</p>
+
+<h2>Lembretes (opcional)</h2>
+<p>Se você ligar os lembretes, o app guarda no Firebase um identificador de notificação do seu aparelho, o fuso horário e os horários escolhidos, junto com o identificador anônimo. Uma tarefa automática usa esses dados só para enviar as notificações pelo Firebase Cloud Messaging. Ao desligar os lembretes, esses dados são apagados.</p>
 
 <h2>Inteligência artificial</h2>
 <p>Ler o rótulo por foto, montar a refeição pelo que você fala ou fotografa e o resumo da semana usam o <b>Gemini</b>, a IA do Google, pelo Firebase AI Logic. Só quando você usa um desses recursos, o app envia ao Google a foto ou o texto daquele pedido. No resumo da semana vão só os números da semana: calorias, proteína, peso, treinos e água.</p>

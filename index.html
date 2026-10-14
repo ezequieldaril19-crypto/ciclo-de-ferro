@@ -247,6 +247,7 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .rank-list .pos{font-family:var(--f-impact);font-size:22px;width:34px;text-align:center}
 .rank-list .nm{flex:1;min-width:0;font-weight:600}.rank-list .nm small{display:block;font-weight:400;color:var(--muted);font-size:13px}
 .code{font-family:var(--f-impact);font-size:30px;letter-spacing:.18em;color:var(--blue-hot)}
+.rem-list li{gap:10px}.rem-list li span{flex:1}.rem-list input[type=time]{width:110px;padding:6px 8px}
 .tag-rec{display:inline-block;background:var(--blue);color:#fff;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:1px 5px;vertical-align:2px}
 .rc-items li .add{padding:5px 9px 4px;font-size:13px}
 .stepper{display:grid;grid-template-columns:52px 1fr 52px;gap:8px;align-items:center}
@@ -497,7 +498,7 @@ const DEFAULT_SETTINGS = () => ({
   meals: DEFAULT_MEALS.map(m => ({...m})), saved:[], customEx:[], myWo:[], units:{}, lastUnit:{}, tipSwipe:false,
   custom:[], recipes:[], recent:[], shareNew:true, comDel:[],
   rest:90, autoRest:true, bar:20,
-  voted:[], aiOk:false, aiWeek:{},
+  voted:[], aiOk:false, aiWeek:{}, rem:null,
   adaptive:true, tdeeHist:{}, fav:[], recentM:{}, showWater:true, waterGoal:null, showFast:false, fast:null, fastGoal:16, showMicro:true,
   t:0
 });
@@ -1133,7 +1134,7 @@ async function remoteSearch(q){
 // IA do Google (Gemini) pelo Firebase AI Logic, protegida pelo App Check.
 // O SDK (vendor/fbsdk.js) só é carregado na primeira vez que a pessoa usa a IA ou entra com a conta Google.
 const MLAI = (() => {
-  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211"};
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94"};
   if (!CFG || !CFG.apiKey || !CFG.appId || !CFG.recaptcha) return null;
   const MODELS = CFG.models || ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash"];
   let ready = null, modelIdx = 0, loaded = null;
@@ -1211,7 +1212,7 @@ async function appCheckToken(){ return MLAI ? MLAI.appCheckToken() : null; }
 // Conta Google (Firebase Auth): backup na nuvem, troca de celular, amigos e desafios.
 // Os dados ficam em users/<uid>/... no Firestore, e as regras só deixam o próprio dono ler e gravar.
 const Account = (() => {
-  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211"};
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94"};
   if (!MLAI || !CFG || !CFG.account) return null; // ligado só depois que as regras de conta estiverem publicadas
   const ROOT = `projects/${CFG.projectId}/databases/(default)/documents`, DOCS = `${CFG.fs}/v1/${ROOT}`, FLAG = "muscleLand.google";
   let ctx = null, user = null, ready = null;
@@ -1347,7 +1348,7 @@ const Account = (() => {
 // Base da comunidade (Firebase Firestore via REST): alimentos, receitas e treinos que os usuários compartilham.
 // Login anônimo do Firebase: não pede nome nem e-mail; só identifica quem pode editar cada cadastro.
 const Community = (() => {
-  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211"};
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94"};
   if (!CFG || !CFG.apiKey || !CFG.projectId) return null;
   const LS = "muscleLand.community", AU = "muscleLand.auth";
   const ROOT = `projects/${CFG.projectId}/databases/(default)/documents`;
@@ -1490,12 +1491,18 @@ const Community = (() => {
     ]);
     const s = cache.stats.items[fid] || {c:0}; cache.stats.items[fid] = {c:s.c + 1}; save();
   }
+  // lembretes: token de notificação deste aparelho + horários (só o próprio aparelho lê e grava)
+  async function setPush(o){
+    await token();
+    await commit([{update:{name:`${ROOT}/push/${auth.uid}`, fields:fieldsOf({tok:o.tok, tz:o.tz, r:o.r.slice(0, 8).map(x => ({h:x.h, k:x.k}))})}, updateTransforms:stamp}]);
+  }
+  async function delPush(){ await token(); await commit([{delete:`${ROOT}/push/${auth.uid}`}]); }
   async function report(fid, why){
     await token();
     await commit([{update:{name:`${ROOT}/reports/${newId()}`, fields:{fid:enc(fid), why:enc(String(why).slice(0, 200)), uid:enc(auth.uid)}}, updateTransforms:stamp, currentDocument:{exists:false}}]);
   }
   return {
-    sync, report, vote, publishDoc, removeDoc,
+    sync, report, vote, publishDoc, removeDoc, setPush, delPush,
     publish: (food, id) => publishDoc("foods", food, id),
     remove: id => removeDoc("foods", id),
     items: () => cache.foods.items,
@@ -1505,6 +1512,33 @@ const Community = (() => {
     uid: () => auth && auth.uid,
     lastSync: () => cache.at || 0
   };
+})();
+
+// Lembretes no celular: Firebase Cloud Messaging. Quem dispara no horário é uma tarefa agendada no GitHub (grátis).
+const Reminders = (() => {
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94"};
+  if (!MLAI || !CFG || !CFG.vapid || !CFG.account || !Community) return null; // liga junto com as regras da versão 3
+  const supported = () => "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
+  async function deviceToken(){
+    const c = await MLAI.sdk(), F = c.F;
+    if (!(await F.messagingSupported().catch(() => false))) throw Object.assign(new Error("sem suporte"), {code:"unsupported"});
+    c.msg = c.msg || F.getMessaging(c.app);
+    const reg = await navigator.serviceWorker.ready;
+    return F.getMessagingToken(c.msg, {vapidKey:CFG.vapid, serviceWorkerRegistration:reg});
+  }
+  const tz = () => { try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo"; }catch(e){ return "America/Sao_Paulo"; } };
+  async function save(list, ask){
+    if (!supported()) throw Object.assign(new Error("sem suporte"), {code:"unsupported"});
+    if (ask && Notification.permission !== "granted"){ const p = await Notification.requestPermission(); if (p !== "granted") throw Object.assign(new Error("negado"), {code:"denied"}); }
+    if (Notification.permission !== "granted") throw Object.assign(new Error("negado"), {code:"denied"});
+    const tok = await deviceToken();
+    await Community.setPush({tok, tz:tz(), r:list});
+  }
+  async function off(){
+    await Community.delPush().catch(() => {});
+    try{ const c = await MLAI.sdk(); if (c.msg) await c.F.deleteMessagingToken(c.msg); }catch(e){}
+  }
+  return {supported, save, off, permission: () => supported() ? Notification.permission : "unsupported"};
 })();
 
 /* ================= IA ================= */
@@ -3594,6 +3628,7 @@ function renderAjustes(){
     <p class="note" style="margin:0">Usa a cota gratuita do Gemini (Google). Ela é dividida por todos que usam o app, então às vezes pode pedir para esperar 1 minuto. Na cota gratuita, o Google pode usar fotos e textos para melhorar os produtos dele.</p>` : ""}
   </section></div>`;
   if (typeof pwaPanel === "function") html += pwaPanel();
+  html += remindersHTML();
   html += accountHTML();
   html += `<h2 class="sec" id="dataSec"><span class="t">Seus dados</span></h2><section class="panel stack">
     <p class="note" style="margin:0">${Cloud.ready ? "Seus registros ficam salvos na sua conta Claude e aparecem em qualquer aparelho em que você abrir o app logado." : "Nesta tela os registros ficam só neste aparelho. Exporte um backup de vez em quando."}</p>
@@ -3620,7 +3655,7 @@ function renderAjustes(){
   $("#sDef").onchange = e => { S.def = +e.target.value; touchSettings(); render(); };
   aiEngine().then(e => { ui.aiAvail = !!e; ui.aiName = e ? e.name : ""; const w = $("#aiSet"); if (w){ w.hidden = !e; const sm = w.querySelector("h2 small"); if (sm) sm.textContent = ui.aiName; else if (e) w.querySelector("h2").insertAdjacentHTML("beforeend", `<small>${esc(e.name)}</small>`); } });
   $("#aiTg")?.addEventListener("click", () => { S.aiOk = !S.aiOk; touchSettings(); render(); });
-  bindAccount();
+  bindAccount(); bindReminders();
   $("#sAdapt").onclick = () => { S.adaptive = !S.adaptive; touchSettings(); render(); };
   [["#tWater","showWater"],["#tFast","showFast"],["#tMicro","showMicro"]].forEach(([id, k]) => $(id).onclick = () => { S[k] = !S[k]; touchSettings(); render(); });
   $("#sWater")?.addEventListener("change", e => { const v = num(e.target.value); S.waterGoal = v && v >= 500 && v <= 8000 ? Math.round(v) : null; touchSettings(); render(); });
@@ -3853,9 +3888,48 @@ function initAccount(){
   });
 }
 
+/* ================= Lembretes ================= */
+const REM_KINDS = [["peso","Pesar em jejum","07:00",true],["cafe","Registrar o café da manhã","09:30",false],["almoco","Registrar o almoço","13:30",true],["agua","Beber água","15:30",false],["treino","Hora do treino","18:00",false],["jantar","Registrar o jantar","20:30",true]];
+function remState(){
+  if (!S.rem) S.rem = {on:false, list:REM_KINDS.map(([k, , h, on]) => ({k, h, on}))};
+  REM_KINDS.forEach(([k, , h]) => { if (!S.rem.list.some(x => x.k === k)) S.rem.list.push({k, h, on:false}); });
+  return S.rem;
+}
+function remindersHTML(){
+  if (!Reminders) return "";
+  const st = remState(), perm = Reminders.permission();
+  return secH("Lembretes", st.on ? "ligados" : "") + `<section class="panel stack">
+    ${perm === "unsupported" ? `<p class="note warn" style="margin:0">Este aparelho ou navegador não aceita notificações do app.</p>` : `
+    <button class="chip share-tg" id="remOn" aria-pressed="${st.on}">${st.on ? "✓ Lembretes ligados" : "Ligar lembretes no celular"}</button>
+    ${perm === "denied" ? `<p class="note warn" style="margin:0">As notificações do app estão bloqueadas. Libere nas configurações do Android: Apps > Muscle Land (ou Chrome) > Notificações.</p>` : ""}
+    <ul class="list-edit rem-list">${st.list.map((r, i) => { const kd = REM_KINDS.find(x => x[0] === r.k); return `<li><button class="chip" data-rmt="${i}" aria-pressed="${r.on}">${r.on ? "✓" : "○"}</button><span>${esc(kd ? kd[1] : r.k)}</span><input type="time" data-rh="${i}" value="${esc(r.h)}" aria-label="Horário: ${esc(kd ? kd[1] : r.k)}"></li>`; }).join("")}</ul>
+    <p class="note" style="margin:0">Os lembretes chegam com até uns 15 minutos de diferença do horário escolhido.</p>`}
+  </section>`;
+}
+let remT = null;
+async function remPush(ask){
+  const st = remState(), list = st.list.filter(r => r.on && /^\d\d:\d\d$/.test(r.h)).map(r => ({k:r.k, h:r.h}));
+  if (!st.on) return;
+  if (!list.length){ await Reminders.off(); return; }
+  await Reminders.save(list, ask);
+}
+function bindReminders(){
+  if (!Reminders) return;
+  const st = remState();
+  const later = () => { clearTimeout(remT); remT = setTimeout(() => remPush(false).then(() => toast("Lembretes atualizados")).catch(e => toast(e && e.code === "denied" ? "Notificações bloqueadas no celular" : "Sem internet: tente de novo")), 900); };
+  $("#remOn")?.addEventListener("click", async () => {
+    const b = $("#remOn"); b.disabled = true;
+    if (st.on){ st.on = false; touchSettings(); await Reminders.off(); render(); toast("Lembretes desligados"); return; }
+    try{ st.on = true; await remPush(true); touchSettings(); render(); toast("Lembretes ligados"); }
+    catch(e){ st.on = false; b.disabled = false; toast(e && e.code === "denied" ? "Sem permissão para notificar. Libere nas configurações" : e && e.code === "unsupported" ? "Este aparelho não aceita notificações do app" : "Não deu para ligar agora. Tente de novo"); render(); }
+  });
+  view.querySelectorAll("[data-rmt]").forEach(b => b.onclick = () => { const r = st.list[+b.dataset.rmt]; r.on = !r.on; touchSettings(); b.setAttribute("aria-pressed", String(r.on)); b.textContent = r.on ? "✓" : "○"; later(); });
+  view.querySelectorAll("[data-rh]").forEach(inp => inp.onchange = () => { const r = st.list[+inp.dataset.rh]; if (/^\d\d:\d\d$/.test(inp.value)){ r.h = inp.value; touchSettings(); later(); } });
+}
+
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "14/10/2026 17:08";
+const APP_BUILD = "14/10/2026 17:19";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
