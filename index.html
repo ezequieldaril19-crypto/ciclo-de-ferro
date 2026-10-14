@@ -231,6 +231,22 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .tag-com{display:inline-block;background:var(--panel-2);border:1px solid var(--line-2);color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:0 5px;vertical-align:2px}
 .ver{color:var(--ok)}
 .mini.on{color:var(--hazard)}
+.consent{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.72);display:flex;align-items:flex-end;justify-content:center;padding:16px}
+.consent .cbox{width:min(520px,100%);background:var(--panel-2);border:1px solid var(--blue);padding:18px 16px 16px}
+.consent h3{font-family:var(--f-display);font-weight:400;font-size:24px;margin:0 0 8px}
+.consent p{margin:6px 0;font-size:15px;color:#d9d7d0}
+.ai-items li{flex-wrap:wrap}
+.ai-items li span{display:flex;flex-direction:column;flex-basis:100%}
+.ai-items li input{width:76px;flex:none;padding:6px 8px}
+.ai-items li small{color:var(--muted)}
+.ai-text{font-size:16px;line-height:1.55}
+#aiMic.on{border-color:var(--red);color:var(--red-hot)}
+.rank-list{list-style:none;margin:0;padding:0}
+.rank-list li{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px dashed var(--line-2)}
+.rank-list li.me{background:linear-gradient(90deg,rgba(31,139,255,.12),transparent)}
+.rank-list .pos{font-family:var(--f-impact);font-size:22px;width:34px;text-align:center}
+.rank-list .nm{flex:1;min-width:0;font-weight:600}.rank-list .nm small{display:block;font-weight:400;color:var(--muted);font-size:13px}
+.code{font-family:var(--f-impact);font-size:30px;letter-spacing:.18em;color:var(--blue-hot)}
 .tag-rec{display:inline-block;background:var(--blue);color:#fff;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:1px 5px;vertical-align:2px}
 .rc-items li .add{padding:5px 9px 4px;font-size:13px}
 .stepper{display:grid;grid-template-columns:52px 1fr 52px;gap:8px;align-items:center}
@@ -481,7 +497,7 @@ const DEFAULT_SETTINGS = () => ({
   meals: DEFAULT_MEALS.map(m => ({...m})), saved:[], customEx:[], myWo:[], units:{}, lastUnit:{}, tipSwipe:false,
   custom:[], recipes:[], recent:[], shareNew:true, comDel:[],
   rest:90, autoRest:true, bar:20,
-  voted:[],
+  voted:[], aiOk:false, aiWeek:{},
   adaptive:true, tdeeHist:{}, fav:[], recentM:{}, showWater:true, waterGoal:null, showFast:false, fast:null, fastGoal:16, showMicro:true,
   t:0
 });
@@ -504,6 +520,7 @@ function mergeSettings(raw){
   if (!s.tdeeHist || typeof s.tdeeHist !== "object") s.tdeeHist = {};
   if (!Array.isArray(s.fav)) s.fav = [];
   if (!Array.isArray(s.voted)) s.voted = [];
+  if (!s.aiWeek || typeof s.aiWeek !== "object") s.aiWeek = {};
   if (!s.recentM || typeof s.recentM !== "object") s.recentM = {};
   return s;
 }
@@ -1113,6 +1130,220 @@ async function remoteSearch(q){
 }
 
 
+// IA do Google (Gemini) pelo Firebase AI Logic, protegida pelo App Check.
+// O SDK (vendor/fbsdk.js) só é carregado na primeira vez que a pessoa usa a IA ou entra com a conta Google.
+const MLAI = (() => {
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211"};
+  if (!CFG || !CFG.apiKey || !CFG.appId || !CFG.recaptcha) return null;
+  const MODELS = CFG.models || ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash"];
+  let ready = null, modelIdx = 0, loaded = null;
+  function load(){
+    if (!ready) ready = new Promise((res, rej) => {
+      if (window.MLFB) return res(window.MLFB);
+      const s = document.createElement("script"); s.src = "vendor/fbsdk.js";
+      s.onload = () => window.MLFB ? res(window.MLFB) : rej(new Error("sdk"));
+      s.onerror = () => rej(new Error("sdk"));
+      document.head.appendChild(s);
+    }).then(F => {
+      const app = F.initializeApp({apiKey:CFG.apiKey, authDomain:CFG.authDomain, projectId:CFG.projectId, appId:CFG.appId, messagingSenderId:CFG.messagingSenderId});
+      if (CFG.debugToken) self.FIREBASE_APPCHECK_DEBUG_TOKEN = CFG.debugToken; // só em testes, nunca na versão publicada
+      const ac = F.initializeAppCheck(app, {provider:new F.ReCaptchaEnterpriseProvider(CFG.recaptcha), isTokenAutoRefreshEnabled:true});
+      const ai = F.getAI(app, {backend:new F.GoogleAIBackend()});
+      loaded = {F, app, ac, ai};
+      return loaded;
+    }).catch(e => { ready = null; throw e; });
+    return ready;
+  }
+  // erro em formato simples, igual ao que o app já trata: rate_limited, appcheck, offline, failed
+  function wrap(e){
+    const msg = String((e && (e.message || e.code)) || e);
+    const err = new Error(msg);
+    err.code = /429|quota|rate|resource.?exhausted/i.test(msg) ? "rate_limited"
+      : /app.?check|attest|recaptcha|403|permission/i.test(msg) ? "appcheck"
+      : !navigator.onLine || /network|fetch|Failed to fetch/i.test(msg) ? "offline"
+      : /safety|blocked/i.test(msg) ? "image_rejected" : "failed";
+    return err;
+  }
+  async function generate(parts, json){
+    const {F, ai} = await load();
+    let last;
+    for (let i = modelIdx; i < MODELS.length; i++){
+      try{
+        const model = F.getGenerativeModel(ai, {model:MODELS[i], generationConfig: json ? {responseMimeType:"application/json", temperature:0.2} : {temperature:0.6, maxOutputTokens:900}});
+        const r = await model.generateContent(parts);
+        modelIdx = i;
+        return r.response.text();
+      }catch(e){
+        last = e;
+        if (!/not.?found|404|is not supported|unsupported model|no longer available/i.test(String(e && e.message))) throw wrap(e);
+      }
+    }
+    throw wrap(last);
+  }
+  // foto reduzida para no máximo 1280 px: envia menos dados e gasta menos cota
+  async function filePart(file){
+    const img = await new Promise((res, rej) => { const u = URL.createObjectURL(file), im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = u; });
+    const s = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+    const cv = document.createElement("canvas"); cv.width = Math.round(img.naturalWidth*s); cv.height = Math.round(img.naturalHeight*s);
+    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    const b64 = cv.toDataURL("image/jpeg", 0.85).split(",")[1];
+    return {inlineData:{data:b64, mimeType:"image/jpeg"}};
+  }
+  const parseJSON = t => JSON.parse(String(t).trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim());
+  return {
+    name: "Gemini (Google)",
+    load,
+    async json(prompt, opts = {}){
+      const parts = [prompt];
+      for (const f of opts.images || []) parts.push(await filePart(f));
+      return parseJSON(await generate(parts, true));
+    },
+    async text(prompt){ return generate([prompt], false); },
+    async appCheckToken(){
+      if (!loaded) return null; // não carrega o SDK só por isso
+      try{ return (await loaded.F.getAppCheckToken(loaded.ac, false)).token; }catch(e){ return null; }
+    },
+    sdk: () => load()
+  };
+})();
+async function appCheckToken(){ return MLAI ? MLAI.appCheckToken() : null; }
+
+// Conta Google (Firebase Auth): backup na nuvem, troca de celular, amigos e desafios.
+// Os dados ficam em users/<uid>/... no Firestore, e as regras só deixam o próprio dono ler e gravar.
+const Account = (() => {
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211"};
+  if (!MLAI || !CFG || !CFG.account) return null; // ligado só depois que as regras de conta estiverem publicadas
+  const ROOT = `projects/${CFG.projectId}/databases/(default)/documents`, DOCS = `${CFG.fs}/v1/${ROOT}`, FLAG = "muscleLand.google";
+  let ctx = null, user = null, ready = null;
+  const subs = new Set();
+  function init(){
+    if (!ready) ready = MLAI.sdk().then(async c => {
+      ctx = c; const F = c.F;
+      c.auth = c.auth || F.getAuth(c.app);
+      await F.setPersistence(c.auth, F.browserLocalPersistence).catch(() => {});
+      await new Promise(res => { let first = true; F.onAuthStateChanged(c.auth, u => { user = u && !u.isAnonymous ? u : null; try{ localStorage.setItem(FLAG, user ? "1" : ""); }catch(e){} subs.forEach(f => f(user)); if (first){ first = false; res(); } }); });
+      return c;
+    }).catch(e => { ready = null; throw e; });
+    return ready;
+  }
+  const remembered = () => { try{ return localStorage.getItem(FLAG) === "1"; }catch(e){ return false; } };
+  async function signIn(){
+    const c = await init(), F = c.F, prov = new F.GoogleAuthProvider();
+    prov.setCustomParameters({prompt:"select_account"});
+    try{ await F.signInWithPopup(c.auth, prov); }
+    catch(e){
+      if (e && /popup-blocked|operation-not-supported/.test(e.code || "")){ await F.signInWithRedirect(c.auth, prov); return; }
+      throw e;
+    }
+  }
+  async function signOut(){ const c = await init(); await c.F.signOut(c.auth); }
+  async function idToken(){ if (!user) throw Object.assign(new Error("sem conta"), {code:"unauthenticated"}); return user.getIdToken(); }
+  async function headers(){
+    const h = {"Content-Type":"application/json", Authorization:`Bearer ${await idToken()}`};
+    const ac = await MLAI.appCheckToken().catch(() => null); if (ac) h["X-Firebase-AppCheck"] = ac;
+    return h;
+  }
+  async function req(method, path, body){
+    const r = await fetch(`${DOCS}/${path}${path.includes("?") ? "&" : "?"}key=${CFG.apiKey}`, {method, headers:await headers(), body: body ? JSON.stringify(body) : undefined});
+    if (!r.ok){ const e = new Error(`${method} ${r.status}`); e.status = r.status; e.code = r.status === 429 || r.status >= 500 ? "unavailable" : r.status === 403 ? "denied" : "failed"; throw e; }
+    return r.status === 204 ? null : r.json();
+  }
+  const sv = v => ({stringValue:String(v)}), iv = v => ({integerValue:String(Math.round(v))});
+  // coleção no mesmo formato que o app já usa para sincronizar (doc(id).set, get)
+  function dataCol(){
+    const base = `users/${user.uid}/data`;
+    return {
+      doc: id => ({ set: data => req("PATCH", `${base}/${id}`, {fields:{j:sv(JSON.stringify(data)), t:iv(data.t || Date.now())}}) }),
+      get: async () => {
+        const docs = []; let tok = "";
+        do{
+          const j = await req("GET", `${base}?pageSize=300${tok ? "&pageToken=" + encodeURIComponent(tok) : ""}`);
+          (j.documents || []).forEach(d => { const id = d.name.split("/").pop(), raw = d.fields && d.fields.j && d.fields.j.stringValue; docs.push({id, exists:!!raw, data:() => JSON.parse(raw)}); });
+          tok = j.nextPageToken || "";
+        } while (tok);
+        return {docs};
+      }
+    };
+  }
+  async function listIds(path){
+    const out = []; let tok = "";
+    do{ const j = await req("GET", `${path}?pageSize=300&mask.fieldPaths=t${tok ? "&pageToken=" + encodeURIComponent(tok) : ""}`); (j.documents || []).forEach(d => out.push(d.name.split("/").pop())); tok = j.nextPageToken || ""; } while (tok);
+    return out;
+  }
+  async function runQuery(coll, field, value){
+    const r = await fetch(`${DOCS}:runQuery?key=${CFG.apiKey}`, {method:"POST", headers:await headers(), body:JSON.stringify({structuredQuery:{from:[{collectionId:coll}], where:{fieldFilter:{field:{fieldPath:field}, op:"EQUAL", value:{stringValue:value}}}, limit:50}})});
+    if (!r.ok){ const e = new Error("query " + r.status); e.status = r.status; throw e; }
+    return (await r.json()).filter(x => x.document).map(x => ({id:x.document.name.split("/").pop(), f:x.document.fields || {}}));
+  }
+  const dec = f => Object.fromEntries(Object.entries(f || {}).map(([k, v]) => [k, v.stringValue ?? (v.integerValue != null ? Number(v.integerValue) : v.doubleValue ?? v.booleanValue ?? v.timestampValue ?? (v.mapValue ? dec(v.mapValue.fields) : null))]));
+  const stamp = [{fieldPath:"t", setToServerValue:"REQUEST_TIME"}];
+  async function commit(writes){
+    const r = await fetch(`${DOCS}:commit?key=${CFG.apiKey}`, {method:"POST", headers:await headers(), body:JSON.stringify({writes})});
+    if (!r.ok){ const e = new Error("commit " + r.status); e.status = r.status; throw e; }
+  }
+  const CODE = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => CODE[b % 32]).join("");
+
+  // ---- perfil público mínimo (primeiro nome + código de amigo)
+  async function profile(){
+    try{ const d = await req("GET", `profiles/${user.uid}`); return dec(d.fields); }
+    catch(e){ if (e.status !== 404) throw e; }
+    const n = String(user.displayName || "Atleta").split(" ")[0].slice(0, 30), c = newCode();
+    await commit([{update:{name:`${ROOT}/profiles/${user.uid}`, fields:{n:sv(n), c:sv(c)}}, updateTransforms:stamp}]);
+    return {n, c};
+  }
+  async function setName(n){ const p = await profile(); await commit([{update:{name:`${ROOT}/profiles/${user.uid}`, fields:{n:sv(String(n).slice(0, 30)), c:sv(p.c)}}, updateTransforms:stamp}]); }
+  // ---- resumo público que só amigos aceitos leem
+  async function publishStats(st){
+    const fields = {n:sv(st.n), mk:sv(st.mk), mo:iv(st.mo), wk:iv(st.wk), dd:iv(st.dd), vol:iv(st.vol), ln:sv(st.ln || ""), lk:sv(st.lk || "")};
+    await commit([{update:{name:`${ROOT}/pub/${user.uid}`, fields}, updateTransforms:stamp}]);
+  }
+  // ---- amigos: B digita o código de A -> B libera A para ver B e manda pedido; A aceita -> A libera B
+  async function addByCode(code){
+    code = String(code).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const hits = await runQuery("profiles", "c", code);
+    const hit = hits.find(h => h.id !== user.uid);
+    if (!hit){ const e = new Error("código"); e.code = hits.length ? "self" : "not_found"; throw e; }
+    const me = await profile();
+    await commit([
+      {update:{name:`${ROOT}/users/${user.uid}/friends/${hit.id}`, fields:{}}, updateTransforms:stamp},
+      {update:{name:`${ROOT}/reqs/${hit.id}_${user.uid}`, fields:{from:sv(user.uid), to:sv(hit.id), n:sv(me.n)}}, updateTransforms:stamp}
+    ]);
+    return {uid:hit.id, n:dec(hit.f).n};
+  }
+  async function requests(){ return (await runQuery("reqs", "to", user.uid)).map(r => ({id:r.id, ...dec(r.f)})); }
+  async function accept(r){
+    await commit([{update:{name:`${ROOT}/users/${user.uid}/friends/${r.from}`, fields:{}}, updateTransforms:stamp}, {delete:`${ROOT}/reqs/${r.id}`}]);
+  }
+  async function decline(r){ await commit([{delete:`${ROOT}/reqs/${r.id}`}]); }
+  async function friends(){
+    const ids = await listIds(`users/${user.uid}/friends`);
+    const out = [];
+    for (const id of ids){
+      try{ const d = await req("GET", `pub/${id}`); out.push({uid:id, ok:true, ...dec(d.fields)}); }
+      catch(e){ out.push({uid:id, ok:false}); } // ainda não aceitou (ou não tem resumo)
+    }
+    return out;
+  }
+  async function unfriend(id){ await commit([{delete:`${ROOT}/users/${user.uid}/friends/${id}`}]); }
+  // ---- excluir conta: apaga tudo na nuvem e a conta Google do app
+  async function deleteAll(){
+    const c = await init(), uidNow = user.uid;
+    const data = await listIds(`users/${uidNow}/data`).catch(() => []), fr = await listIds(`users/${uidNow}/friends`).catch(() => []);
+    const dels = data.map(id => ({delete:`${ROOT}/users/${uidNow}/data/${id}`})).concat(fr.map(id => ({delete:`${ROOT}/users/${uidNow}/friends/${id}`})), [{delete:`${ROOT}/profiles/${uidNow}`}, {delete:`${ROOT}/pub/${uidNow}`}]);
+    for (let i = 0; i < dels.length; i += 400) await commit(dels.slice(i, i + 400));
+    try{ await c.F.deleteUser(c.auth.currentUser); }
+    catch(e){
+      if (e && e.code === "auth/requires-recent-login"){ await c.F.reauthenticateWithPopup(c.auth.currentUser, new c.F.GoogleAuthProvider()); await c.F.deleteUser(c.auth.currentUser); }
+      else throw e;
+    }
+  }
+  return {
+    init, remembered, signIn, signOut, deleteAll, dataCol, profile, setName, publishStats, addByCode, requests, accept, decline, friends, unfriend,
+    user: () => user, onChange: f => { subs.add(f); return () => subs.delete(f); }
+  };
+})();
+
 // Base da comunidade (Firebase Firestore via REST): alimentos, receitas e treinos que os usuários compartilham.
 // Login anônimo do Firebase: não pede nome nem e-mail; só identifica quem pode editar cada cadastro.
 const Community = (() => {
@@ -1276,19 +1507,105 @@ const Community = (() => {
   };
 })();
 
-let labelP = null;
-function labelReader(){
-  if (!labelP) labelP = (async () => {
+/* ================= IA ================= */
+// Motor: Gemini (app instalado, via Firebase) ou Claude (versão dentro do Claude). Mesma interface: json(prompt, {images}) e text(prompt).
+let aiP = null;
+function aiEngine(){
+  if (!aiP) aiP = (async () => {
+    if (MLAI) return {name:MLAI.name, images:true, google:true, json:(p, o) => MLAI.json(p, o), text:p => MLAI.text(p)};
     try{
-      if (!window.claude || !window.claude.use) return null;
-      const sample = await window.claude.use("sample");
-      if (!sample) return null;
-      const lim = await sample.limits().catch(() => null);
-      return lim && lim.images ? sample : null;
-    }catch(_){ return null; }
+      if (window.claude && window.claude.use){
+        const s = await window.claude.use("sample");
+        if (s){ const lim = await s.limits().catch(() => null); return {name:"Claude", images:!!(lim && lim.images), json:(p, o) => s.json(p, o), text:async p => (await s(p)).text}; }
+      }
+    }catch(e){}
+    return null;
   })();
-  return labelP;
+  return aiP;
 }
+function aiConsent(){
+  return new Promise(res => {
+    const el = document.createElement("div"); el.className = "consent"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true");
+    el.innerHTML = `<div class="cbox"><h3>Usar a IA do Google?</h3>
+      <p>Para ler fotos e textos, o Muscle Land envia a foto ou o texto ao <b>Gemini</b>, a IA do Google, pela cota gratuita.</p>
+      <p>Nessa cota, o Google pode usar o conteúdo para melhorar os produtos dele, e pessoas podem revisar. Não envie fotos com rostos, documentos ou dados pessoais. Uso para maiores de 18 anos.</p>
+      <p class="muted">As respostas da IA são estimativas e não substituem nutricionista, médico ou educador físico.</p>
+      <div class="row" style="margin-top:12px"><button class="btn grow" id="aiYes">Usar a IA</button><button class="btn ghost" id="aiNo">Agora não</button></div></div>`;
+    document.body.appendChild(el);
+    el.querySelector("#aiYes").onclick = () => { S.aiOk = true; touchSettings(); el.remove(); res(true); };
+    el.querySelector("#aiNo").onclick = () => { el.remove(); res(false); };
+  });
+}
+async function aiCall(kind, ...args){
+  const e = await aiEngine();
+  if (!e){ const x = new Error("unavailable"); x.code = "unavailable"; throw x; }
+  if (e.google && !S.aiOk && !(await aiConsent())){ const x = new Error("declined"); x.code = "declined"; throw x; }
+  return e[kind](...args);
+}
+const aiErrMsg = e => ({rate_limited:"A IA grátis está no limite agora. Tente de novo em 1 minuto.", appcheck:"A IA não reconheceu este aparelho. Atualize o app e tente de novo.", offline:"Sem internet agora. Tente de novo quando conectar.",
+  image_rejected:"Essa imagem não pôde ser analisada. Tente outra foto.", not_granted:"Uso da IA não autorizado.", unavailable:"A IA não está disponível aqui."}[e && e.code] || "A IA não respondeu. Tente de novo.");
+
+// Procura na base o alimento mais parecido com o nome que a IA devolveu
+const STOP = new Set(["de","da","do","das","dos","com","sem","e","a","o","em","no","na","ao","tipo","porcao","pedaco"]);
+const SYN = {bife:["carne"], file:["file"], frango:["frango"], branco:[], branca:[], grelhada:["grelhado"], cozida:["cozido"], frita:["frito"], assada:["assado"], refrigerante:["refrigerante"], cafe:["cafe"], leite:["leite"], suco:["suco"], ovos:["ovo"], ovo:["ovo"], bovina:["bovina"]};
+function bestMatches(q, n = 3){
+  // pontua por palavras raras (peso maior para "patinho" do que para "cozido") e evita trocar preparo (cru x cozido)
+  const raw = norm(q).split(/[^a-z0-9]+/).filter(w => w.length > 1 && !STOP.has(w));
+  const words = [...new Set(raw.flatMap(w => SYN[w] ? SYN[w].concat(SYN[w].length ? [] : []) : [w]).concat(raw.filter(w => SYN[w] && SYN[w].length && !SYN[w].includes(w)).length ? [] : []))].filter(Boolean);
+  if (!words.length) return [];
+  const list = allFoods(), N = list.length;
+  const stem = w => w.length > 5 ? w.slice(0, -1) : w;
+  const wt = {}; words.forEach(w => { const st = stem(w); const df = list.reduce((a, f) => a + (f.nn.includes(st) ? 1 : 0), 0); wt[w] = df ? Math.log(N / df) : 0; });
+  const key = words.slice().sort((a, b) => wt[b] - wt[a])[0], pop = f => POPULAR.some(x => f.nn.includes(x)) ? 1 : 0;
+  const scored = [];
+  for (const f of list){
+    let sc = 0, hit = 0;
+    words.forEach(w => { if (f.nn.includes(stem(w))){ sc += wt[w]; hit++; } });
+    if (!hit || (wt[key] > 2 && !f.nn.includes(stem(key)) && hit < 2)) continue;
+    // "ovo mexido" não deve virar ovo cru (vale para carnes, ovos, grãos e tubérculos; fruta crua é normal)
+    if (/\bcru/.test(f.nn) && !words.some(w => w.startsWith("cru")) && /^(carne|frango|ovo|peixe|arroz|feijao|macarrao|batata|mandioca|porco|file|bacalhau|camarao|lingui|peru|lombo|costela|aveia|milho|pao|massa|pizza|lasanha)/.test(f.nn)) sc -= 1.5;
+    sc += pop(f) * .8 + (f.nn.startsWith(words[0]) ? 1.6 : 0) + (f.mine ? .5 : 0) + (f.ver ? .3 : 0) - f.n.length / 150 - (f.src === 2 ? .2 : 0);
+    scored.push([sc, f]);
+  }
+  return scored.sort((a, b) => b[0] - a[0]).slice(0, n).map(x => x[1]);
+}
+const AI_MEAL_RULES = `Separe cada alimento e estime a quantidade em gramas. Quando a pessoa não disser o peso, use porções caseiras brasileiras típicas (1 concha de feijão ≈ 140 g, 1 colher de servir de arroz ≈ 45 g, 1 pão francês = 50 g, 1 ovo = 50 g, 1 filé de frango ≈ 120 g, 1 fatia de queijo ≈ 20 g, 1 banana ≈ 70 g, 1 copo = 200 ml).
+Responda somente com JSON neste formato:
+{"itens":[{"busca":"nome do alimento no estilo da Tabela TACO, ex.: arroz tipo 1 cozido, feijão carioca cozido, frango peito grelhado, carne bovina patinho grelhado, pão francês","descricao":"como aparece, ex.: 2 conchas de feijão","gramas":140,"kcal":0,"proteina":0,"carboidrato":0,"gordura":0}]}
+kcal e macros = sua estimativa para a quantidade toda. Números com ponto decimal.
+Se não houver comida, responda {"itens":[]}.`;
+const aiTextPrompt = t => `Você ajuda a registrar refeições num app brasileiro de dieta. Abaixo está o que a pessoa comeu, em português do Brasil.\n${AI_MEAL_RULES}\nTexto da pessoa: """${String(t).slice(0, 800)}"""`;
+const AI_PHOTO_PROMPT = `Você ajuda a registrar refeições num app brasileiro de dieta. A imagem é a foto de um prato, lanche ou bebida.\nIdentifique cada alimento visível e estime as gramas pelo tamanho no prato.\n${AI_MEAL_RULES}`;
+function aiItemsFrom(r){
+  const n = v => { const x = Number(v); return isFinite(x) && x >= 0 ? x : 0; };
+  return ((r && r.itens) || []).slice(0, 15).filter(x => x && (x.busca || x.descricao)).map(x => {
+    const busca = String(x.busca || x.descricao).slice(0, 60), g = Math.min(3000, n(x.gramas)) || 100, m = bestMatches(busca, 1)[0] || null;
+    return {busca, desc:String(x.descricao || busca).slice(0, 80), g:r1(g), food:m, est:{k:n(x.kcal), p:n(x.proteina), c:n(x.carboidrato), f:n(x.gordura)}};
+  });
+}
+function weekStats(endK){
+  const days = Array.from({length:7}, (_, i) => addDays(endK, i - 6));
+  const logged = days.filter(k => dayTotals(k).kcal > 300);
+  const avg = f => logged.length ? logged.reduce((a, k) => a + f(k), 0) / logged.length : null;
+  const ws = days.map(k => (getDay(k, false) || {}).w).filter(Boolean);
+  const wos = allWorkouts().filter(x => x.wo.done && days.includes(x.k));
+  const vol = wos.reduce((a, x) => a + x.wo.ex.reduce((b, e) => b + workSets(e).reduce((c, s) => c + (num(s.kg) || 0)*(num(s.r) || 0), 0), 0), 0);
+  const prs = wos.reduce((a, x) => a + workoutStats(x.k, x.wo).prs, 0);
+  const ranks = logged.map(k => rankOf(dayTotals(k), dayTarget(k))).filter(Boolean);
+  const water = days.map(k => (getDay(k, false) || {}).water || 0).filter(Boolean);
+  const plan = cyclePlan(latestWeight(endK), endK);
+  return {objetivo: {cut:"cutting (perder gordura)", keep:"manutenção", bulk:"ganhar massa"}[S.goal], dias_registrados: logged.length,
+    kcal_media: avg(k => dayTotals(k).kcal) && Math.round(avg(k => dayTotals(k).kcal)), kcal_meta_media: avg(k => dayTarget(k).kcal) && Math.round(avg(k => dayTarget(k).kcal)),
+    proteina_media_g: avg(k => dayTotals(k).p) && Math.round(avg(k => dayTotals(k).p)), proteina_meta_g: plan.A.p,
+    metabolismo_basal: plan.bmr, gasto_estimado: plan.tdee, ranks_do_dia: ranks.join(""),
+    peso_inicio: ws[0] || null, peso_fim: ws[ws.length - 1] || null, pesagens: ws.length,
+    treinos_feitos: wos.length, volume_total_kg: Math.round(vol), recordes: prs, agua_media_ml: water.length ? Math.round(water.reduce((a, b) => a + b, 0) / water.length) : null};
+}
+const aiWeekPrompt = st => `Você é um treinador de musculação e dieta que escreve para um app brasileiro. Escreva o resumo da semana da pessoa em português do Brasil, tom direto e motivador, em no máximo 6 tópicos curtos começando com "• ".
+Diga o que foi bem e o que ajustar na próxima semana, citando os números. Não dê conselho médico, não sugira remédios, hormônios nem dietas extremas. Se algo parecer preocupante (por exemplo, calorias bem abaixo do metabolismo basal por vários dias), recomende conversar com nutricionista ou médico.
+Os ranks vão de S (ótimo) a D (longe da meta). Dados da semana (JSON): ${JSON.stringify(st)}`;
+
+function labelReader(){ return aiEngine().then(e => e && e.images ? {json:(p, o) => aiCall("json", p, o)} : null); }
 
 /* ================= Renderização ================= */
 const view = $("#view");
@@ -1560,7 +1877,7 @@ function openMealMenu(id){
   };
 }
 
-function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, excludeKey}){
+function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, excludeKey, q0}){
   // pick: modo "escolher ingrediente" de uma receita. Devolve o item em pick(item) ou pick(null) para remover.
   let food = edit ? {key:edit.key, n:edit.n, k:edit.k, p:edit.p, c:edit.c, f:edit.f} : start || null;
   let mealId = edit ? edit.m : meal;
@@ -1576,6 +1893,7 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
     openSheet(`${sheetHead(pick ? "Adicionar ingrediente" : `Adicionar em ${esc(mealName(mealId))}`)}
       <div class="row"><input id="q" type="search" placeholder="${scope === "rec" ? "Buscar nas suas receitas" : scope === "mine" ? "Buscar nos seus alimentos" : "Buscar: frango grelhado, arroz, ovo…"}" autocomplete="off" aria-label="Buscar alimento" class="grow">
         <button class="iconbtn" id="scanBtn" aria-label="Buscar pelo código de barras" title="Código de barras" style="flex:none;width:48px;height:46px"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M16 8v8"/></svg></button></div>
+      ${pick ? "" : `<div class="grid2" id="aiRow" hidden><button class="btn blue" id="aiTalk">🎤 Falar ou escrever</button><label class="btn blue" id="aiPhotoL" style="text-align:center;cursor:pointer">📷 Foto do prato<input id="aiPhoto" type="file" accept="image/*" capture="environment" hidden></label></div>`}
       <div class="seg scope" role="group" aria-label="Onde buscar">${(Community ? [["all","Todos"],["mine","Meus"],["rec","Receitas"],["com","Comunidade"]] : [["all","Todos"],["mine","Meus alimentos"],["rec","Receitas"]]).map(([v,l]) => `<button data-sc="${v}" aria-pressed="${scope === v}">${l}</button>`).join("")}</div>
       <ul class="results saved" id="sav"></ul>
       <ul class="results" id="res"></ul>
@@ -1587,6 +1905,10 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       ${pick ? `<button class="btn ghost wide" id="pickBack">Voltar para a receita</button>` : `<button class="btn ghost wide" id="quickBtn">⚡ Adição rápida: só calorias e macros</button>`}
       <p class="note" style="margin:0">Base: TACO 4ª edição (NEPA/Unicamp) e tabela do IBGE (POF 2008-2009), quase 2.000 alimentos, valores por 100 g. Industrializados: use o código de barras ou cadastre.</p>`);
     const q = $("#q"), res = $("#res"), sav = $("#sav");
+    if (q0 && !ui.q0used){ q.value = q0; ui.q0used = true; }
+    if (!pick) aiEngine().then(e => { if (!e || !$("#aiRow")) return; $("#aiRow").hidden = false; if (!e.images){ $("#aiPhotoL").remove(); $("#aiRow").className = ""; } });
+    $("#aiTalk")?.addEventListener("click", () => aiTextView());
+    $("#aiPhoto")?.addEventListener("change", e => { const f = e.target.files[0]; if (f) aiPhotoRun(f); });
     document.querySelectorAll("[data-sc]").forEach(b => b.onclick = () => { scope = b.dataset.sc; const v = q.value; searchView(); $("#q").value = v; $("#q").oninput(); });
     const lastText = key => { const L = S.lastUnit[key]; if (!L) return ""; return L.mode === "u" ? `${fmtQ(L.q)} ${unitName(L.n, L.q)}` : `${fmt1(L.g)} g`; };
     const quickRow = f => { const row = foodRow(f), lt = !pick && lastText(f.key); return lt ? row.replace("<li>", `<li class="has-qa">`).replace(/<\/li>$/, `<button class="qa" data-qa="${f.key}" aria-label="Adicionar de novo ${esc(lt)}">+ ${esc(lt)}</button></li>`) : row; };
@@ -1670,6 +1992,83 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
   function newRecipe(){
     const name = $("#q") && scope === "rec" ? $("#q").value.trim() : "";
     openRecipeEditor({n:name, items:[], servings:1, unit:"porção"}, {onSaved: r => openFoodSheet({meal: mealId, start: findFood("r" + r.id)})});
+  }
+  // ---- IA: falar/escrever e foto do prato -> conferir -> adicionar
+  let aiState = null;
+  function aiTextView(prev){
+    openSheet(`${sheetHead("Falar ou escrever")}
+      <p class="note" style="margin:0">Conte o que você comeu do jeito que falaria. Ex.: "2 ovos mexidos, 1 pão francês com requeijão e um café com leite".</p>
+      <textarea id="aiT" rows="4" aria-label="O que você comeu" placeholder="Almocei 4 colheres de arroz, uma concha de feijão e um bife de patinho"></textarea>
+      <button class="btn ghost wide" id="aiMic" hidden>🎤 Falar</button>
+      <button class="btn wide" id="aiGo">Montar com IA</button>
+      <p class="note" id="aiMsg" style="margin:0"></p>
+      <button class="btn ghost wide" id="back">Voltar para a busca</button>`);
+    if (prev) $("#aiT").value = prev;
+    $("#back").onclick = searchView;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR){
+      const mic = $("#aiMic"); mic.hidden = false; let rec = null;
+      mic.onclick = () => {
+        if (rec){ rec.stop(); return; }
+        rec = new SR(); rec.lang = "pt-BR"; rec.interimResults = true; rec.continuous = false;
+        const base = $("#aiT").value.trim();
+        rec.onresult = ev => { const t = Array.from(ev.results).map(r => r[0].transcript).join(" "); $("#aiT").value = (base ? base + ", " : "") + t; };
+        rec.onend = () => { rec = null; mic.textContent = "🎤 Falar"; mic.classList.remove("on"); };
+        rec.onerror = ev => { $("#aiMsg").textContent = ev.error === "not-allowed" ? "Permita o microfone para falar, ou digite." : "Não deu para ouvir. Tente de novo ou digite."; };
+        try{ rec.start(); mic.textContent = "■ Parar"; mic.classList.add("on"); }catch(e){ rec = null; }
+      };
+    }
+    $("#aiGo").onclick = async () => {
+      const t = $("#aiT").value.trim(); if (t.length < 3){ toast("Escreva ou fale o que você comeu"); return; }
+      const b = $("#aiGo"), msg = $("#aiMsg"); b.disabled = true; b.textContent = "Montando…"; msg.textContent = ""; msg.className = "note";
+      try{
+        const items = aiItemsFrom(await aiCall("json", aiTextPrompt(t)));
+        if (!$("#aiGo")) return;
+        if (!items.length){ msg.textContent = "Não achei alimentos nesse texto. Tente descrever de outro jeito."; b.disabled = false; b.textContent = "Montar com IA"; return; }
+        aiState = {items, src:"text", text:t}; aiReview();
+      }catch(e){ if (!$("#aiGo")) return; b.disabled = false; b.textContent = "Montar com IA"; if (e && e.code === "declined") return; msg.textContent = aiErrMsg(e); msg.className = "note warn"; }
+    };
+  }
+  async function aiPhotoRun(file){
+    openSheet(`${sheetHead("Foto do prato")}<p class="note" id="aiMsg" style="margin:0">Analisando a foto… pode levar alguns segundos.</p><button class="btn ghost wide" id="back">Voltar para a busca</button>`);
+    $("#back").onclick = searchView;
+    try{
+      const items = aiItemsFrom(await aiCall("json", AI_PHOTO_PROMPT, {images:[file]}));
+      if (!$("#aiMsg")) return;
+      if (!items.length){ $("#aiMsg").textContent = "Não reconheci comida nessa foto. Tente de mais perto, com boa luz."; $("#aiMsg").className = "note warn"; return; }
+      aiState = {items, src:"photo"}; aiReview();
+    }catch(e){ if (!$("#aiMsg")) return; if (e && e.code === "declined"){ searchView(); return; } $("#aiMsg").textContent = aiErrMsg(e); $("#aiMsg").className = "note warn"; }
+  }
+  function aiReview(){
+    const st = aiState, again = () => aiReview();
+    const macros = r => r.food ? {k:r.food.k*r.g/100, p:r.food.p*r.g/100, c:r.food.c*r.g/100, f:r.food.f*r.g/100} : (r.g0 = r.g0 || r.g, {k:r.est.k*r.g/r.g0, p:r.est.p*r.g/r.g0, c:r.est.c*r.g/r.g0, f:r.est.f*r.g/r.g0});
+    openSheet(`${sheetHead("Confira antes de adicionar")}
+      ${st.src === "photo" ? `<p class="note warn" style="margin:0">Estimativa pela foto. Confira as quantidades: em comida caseira a IA erra bastante.</p>` : `<p class="note" style="margin:0">Ajuste as gramas ou toque em ⇄ para trocar o alimento.</p>`}
+      <ul class="list-edit ai-items">${st.items.map((r, i) => { const m = macros(r); return `<li><span><b>${esc(r.food ? r.food.n : r.desc)}</b><small class="muted">${r.food ? esc(r.desc) : "estimativa da IA · não achei na tabela"} · ${r0(m.k)} kcal</small></span>
+        <input data-ag="${i}" type="text" inputmode="decimal" value="${fmt1(r.g)}" aria-label="Gramas de ${esc(r.desc)}"><small>g</small>
+        <button class="mini" data-asw="${i}" aria-label="Trocar alimento" title="Trocar">⇄</button><button class="mini del" data-arm="${i}" aria-label="Tirar ${esc(r.desc)}">×</button></li>`; }).join("")}</ul>
+      <div id="aiTot" class="micro num"></div>
+      <div class="field"><label for="aiMl">Refeição</label><select id="aiMl">${S.meals.map(m => `<option value="${m.id}" ${m.id === mealId ? "selected" : ""}>${esc(m.n)}</option>`).join("")}</select></div>
+      <button class="btn wide" id="aiAdd">Adicionar ${st.items.length} ${st.items.length === 1 ? "item" : "itens"}</button>
+      <button class="btn ghost wide" id="aiBack">${st.src === "text" ? "Voltar e editar o texto" : "Voltar para a busca"}</button>`);
+    const tot = () => { const t = st.items.reduce((a, r) => { const m = macros(r); a.k += m.k; a.p += m.p; a.c += m.c; a.f += m.f; return a; }, {k:0,p:0,c:0,f:0}); $("#aiTot").innerHTML = `<span>Total <b>${r0(t.k)}</b> kcal</span><span>P <b>${r0(t.p)}</b></span><span>C <b>${r0(t.c)}</b></span><span>G <b>${r0(t.f)}</b></span>`; };
+    tot();
+    document.querySelectorAll("[data-ag]").forEach(inp => inp.oninput = () => { const v = num(inp.value); if (v > 0){ st.items[+inp.dataset.ag].g = v; tot(); } });
+    document.querySelectorAll("[data-arm]").forEach(b => b.onclick = () => { st.items.splice(+b.dataset.arm, 1); if (st.items.length) again(); else searchView(); });
+    document.querySelectorAll("[data-asw]").forEach(b => b.onclick = () => {
+      const r = st.items[+b.dataset.asw]; ui.q0used = false;
+      openFoodSheet({meal:mealId, back:again, q0:r.busca, pick: it => { if (it){ r.food = {key:it.key, n:it.n, k:it.k, p:it.p, c:it.c, f:it.f}; r.g = it.g; r.u = it.u || null; } again(); }});
+    });
+    $("#aiBack").onclick = () => st.src === "text" ? aiTextView(st.text) : searchView();
+    $("#aiAdd").onclick = () => {
+      const d = getDay(ui.day, true), m = $("#aiMl").value;
+      st.items.forEach(r => {
+        if (r.food){ const it = {id:uid(), key:r.food.key, n:r.food.n, g:r1(r.g), k:r.food.k, p:r.food.p, c:r.food.c, f:r.food.f, m}; if (r.u && Math.abs(r.u.q*r.u.g - r.g) < 0.6) it.u = r.u; d.items.push(it);
+          if (r.food.key){ S.recent = [r.food.key].concat(S.recent.filter(x => x !== r.food.key)).slice(0, 20); S.recentM[m] = [r.food.key].concat((S.recentM[m] || []).filter(x => x !== r.food.key)).slice(0, 12); } }
+        else { const mm = macros(r); d.items.push({id:uid(), key:"q", n:`${r.desc} (estimativa)`, g:100, k:r1(mm.k), p:r1(mm.p), c:r1(mm.c), f:r1(mm.f), m}); }
+      });
+      touchDay(ui.day); touchSettings(); closeSheet(); render(); toast(`${st.items.length} ${st.items.length === 1 ? "item adicionado" : "itens adicionados"}`);
+    };
   }
   function quickView(it){
     const ed = it || null;
@@ -1888,7 +2287,7 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
     openSheet(`${sheetHead(editing ? "Editar alimento" : bc ? "Produto novo" : "Novo alimento")}
       ${bc ? `<p class="note" style="margin:0">Código <b class="num" style="color:var(--ink)">${esc(bc)}</b> ainda não está no seu app. Cadastre uma vez; nas próximas leituras ele aparece direto.</p>` : ""}
       <div id="ocrBox" hidden><label class="btn blue wide" style="text-align:center;cursor:pointer">Fotografar a tabela nutricional<input id="ocrPhoto" type="file" accept="image/*" capture="environment" hidden></label>
-        <p class="note" id="ocrMsg" style="margin:6px 0 0">O Claude lê a tabela da foto e preenche os campos. Confira antes de salvar.</p></div>
+        <p class="note" id="ocrMsg" style="margin:6px 0 0">A IA lê a tabela da foto e preenche os campos. Confira antes de salvar.</p></div>
       <div class="field"><label for="cn">Nome</label><input id="cn" type="text" maxlength="60" placeholder="Ex.: Whey concentrado, pão de forma integral"></div>
       <div class="field"><label for="cbr">Marca (opcional)</label><input id="cbr" type="text" maxlength="40" placeholder="Ex.: Growth, Wickbold, caseiro"></div>
       <div class="grid2"><div class="field"><label for="cpor">Porção do rótulo (g)</label><input id="cpor" type="text" inputmode="decimal" value="100"></div>
@@ -1975,7 +2374,8 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
           }
         }catch(err){
           if (!$("#ocrMsg")) return;
-          const m = {not_granted:"Leitura por foto não autorizada. Digite os valores.", rate_limited:"Muitas leituras seguidas. Espere um pouco ou digite os valores.", image_rejected:"Essa imagem não pôde ser usada. Tente outra foto."}[err && err.code];
+          if (err && err.code === "declined"){ msg.textContent = "Tudo bem. Digite os valores da embalagem."; msg.className = "note"; return; }
+          const m = {not_granted:"Leitura por foto não autorizada. Digite os valores.", rate_limited:"A IA grátis está no limite agora. Espere 1 minuto ou digite os valores.", image_rejected:"Essa imagem não pôde ser usada. Tente outra foto.", appcheck:"A IA não reconheceu este aparelho. Atualize o app e tente de novo.", offline:"Sem internet agora. Digite os valores."}[err && err.code];
           msg.textContent = m || "A leitura falhou. Tente de novo ou digite os valores."; msg.className = "note warn";
           if (err && (err.code === "not_granted" || err.code === "sampling_disabled" || err.code === "images_unavailable")) $("#ocrBox label").hidden = true;
         }finally{ lbl.style.opacity = ""; e.target.value = ""; }
@@ -2575,7 +2975,7 @@ function renderTreino(){
       s.ok = !s.ok; b.setAttribute("aria-pressed", String(s.ok)); if (!wo.ta && wo.t0) wo.ta = Date.now(); touchDay(k);
       if (s.ok && !s.w && S.autoRest && !wo.done && k === todayKey()) startRest(S.rest || 90);
     });
-    $("#finish")?.addEventListener("click", () => { wo.done = true; wo.t1 = Date.now(); touchDay(k); render(); openWorkoutCard(k); toast("Treino registrado"); });
+    $("#finish")?.addEventListener("click", () => { wo.done = true; wo.t1 = Date.now(); touchDay(k); render(); openWorkoutCard(k); toast("Treino registrado"); setTimeout(() => socialRefresh(true), 1500); });
     $("#shareWo")?.addEventListener("click", () => openWorkoutCard(k));
     $("#toolsBtn")?.addEventListener("click", () => { const kgs = wo.ex.flatMap(e => workSets(e).map(s => num(s.kg) || 0)); openToolsSheet(kgs.length ? Math.max(...kgs) : null); });
     view.querySelectorAll("[data-wu]").forEach(b => b.onclick = () => openWarmup(k, wo, +b.dataset.wu));
@@ -3061,11 +3461,35 @@ function renderEvolucao(){
       : `<p class="note" style="margin:0">O app descobre quanto você gasta de verdade comparando o que você come com o que a balança mostra. Faltam dados das últimas 4 semanas: <b style="color:var(--ink)">${Math.max(0, 10 - est.days)}</b> dias com as refeições registradas e <b style="color:var(--ink)">${Math.max(0, 5 - est.weighs)}</b> pesagens. Até lá, a meta usa a fórmula (${est.formula.toLocaleString("pt-BR")} kcal).</p>`)
       + `<p class="note" style="margin:8px 0 0">Funciona melhor quando você registra tudo, inclusive nos fins de semana. A meta é recalculada todo domingo${S.adaptive ? "" : "; ligue em Ajustes > Perfil para usar"}.</p></section>`;
   }
+  {
+    const wk = weekStart(today), c = S.aiWeek[wk];
+    html += `<div id="aiWeekWrap" ${ui.aiAvail ? "" : "hidden"}>` + secH("Resumo da semana", "IA", true) + `<section class="panel">${c ? `<div class="ai-text">${esc(c.text).replace(/\n/g, "<br>")}</div>
+      <p class="note" style="margin:8px 0 0">Gerado ${new Date(c.at).toLocaleString("pt-BR", {weekday:"short", hour:"2-digit", minute:"2-digit"})}. É uma leitura dos seus números, não orientação médica.</p>
+      <button class="btn ghost wide" id="aiWeek" style="margin-top:8px">Gerar de novo</button>`
+      : `<p class="note" style="margin:0">A IA lê seus números dos últimos 7 dias (calorias, proteína, peso, treinos) e diz o que foi bem e o que ajustar.</p><button class="btn blue wide" id="aiWeek" style="margin-top:10px">✨ Gerar resumo da semana</button>`}
+      <p class="note" id="aiWeekMsg" style="margin:6px 0 0"></p></section></div>`;
+  }
+  html += socialHTML();
   html += secH("Peso", "média de 7 dias", true) + `<section class="panel">${inRange.length >= 2 ? `<div class="chartbox"><canvas id="cW" aria-label="Gráfico de peso"></canvas></div>` : `<p class="note" style="margin:0">Registre o peso em jejum na aba Dieta. Com dois registros o gráfico aparece aqui, com a linha de tendência de 7 dias.</p>`}</section>`;
   html += secH("Calorias", "consumo × meta") + `<section class="panel">${logged.length ? `<div class="chartbox"><canvas id="cK" aria-label="Gráfico de calorias"></canvas></div><p class="note" style="margin:8px 0 0">Média: <span class="num">${r0(avgK)} kcal</span> · proteína média <span class="num">${r0(avgP)} g</span>. Barras: vermelho carbo alto, branco médio, azul baixo. Traços: meta do dia.</p>` : `<p class="note" style="margin:0">Quando você registrar refeições, cada dia aparece aqui comparado à meta do ciclo.</p>`}</section>`;
   html += secH("Força", "1RM estimado", true) + `<section class="panel">${liftNames.length ? `<select id="exSel" aria-label="Exercício">${liftNames.map(n => `<option ${n===ui.exPick?"selected":""}>${esc(n)}</option>`).join("")}</select><div class="chartbox" style="margin-top:10px"><canvas id="cL" aria-label="Gráfico de força"></canvas></div><p class="note" style="margin:8px 0 0">Estimativa de Epley a partir da melhor série de cada treino.</p>` : `<p class="note" style="margin:0">Finalize treinos com carga e repetições anotadas para ver sua força subir aqui.</p>`}</section>`;
   view.innerHTML = html;
   view.querySelectorAll("[data-r]").forEach(b => b.onclick = () => { ui.range = +b.dataset.r; render(); });
+  aiEngine().then(e => { ui.aiAvail = !!e; const w = $("#aiWeekWrap"); if (w) w.hidden = !e; });
+  bindSocial(); socialRefresh();
+  $("#aiWeek")?.addEventListener("click", async () => {
+    const b = $("#aiWeek"), msg = $("#aiWeekMsg"); b.disabled = true; b.textContent = "Escrevendo…"; msg.textContent = ""; msg.className = "note";
+    try{
+      const st = weekStats(today);
+      if (!st.dias_registrados && !st.treinos_feitos){ throw Object.assign(new Error("vazio"), {code:"empty"}); }
+      const text = String(await aiCall("text", aiWeekPrompt(st))).trim().slice(0, 1600);
+      S.aiWeek = {[weekStart(today)]: {text, at:Date.now()}}; touchSettings(); render();
+    }catch(e){
+      if (!$("#aiWeek")) return; b.disabled = false; b.textContent = "✨ Gerar resumo da semana";
+      if (e && e.code === "declined") return;
+      msg.textContent = e && e.code === "empty" ? "Registre refeições ou treinos nesta semana para ter o que resumir." : aiErrMsg(e); msg.className = "note warn";
+    }
+  });
   $("#tdeeNow")?.addEventListener("click", () => { const e = adaptiveEstimate(addDays(today, 1)); if (e.value){ S.tdeeHist[weekStart(today)] = e.value; touchSettings(); render(); toast("Meta da semana atualizada"); } });
   $("#exSel")?.addEventListener("change", e => { ui.exPick = e.target.value; render(); });
 
@@ -3164,7 +3588,13 @@ function renderAjustes(){
     <div class="stack" style="margin-top:12px;gap:6px">${Object.entries(PROGRAMS).map(([id,p]) => `<button class="prog-opt" data-prog="${id}" aria-pressed="${S.program===id}"><b>${esc(p.name)}${id===rec?"<em>indicado</em>":""}</b><span>${esc(p.tag)}</span></button>`).join("")}</div>
   </section>`;
 
+  html += `<div id="aiSet" ${ui.aiAvail ? "" : "hidden"}>` + secH("Inteligência artificial", ui.aiName || "") + `<section class="panel stack">
+    <p class="note" style="margin:0">Usada para ler rótulos, montar refeições pelo que você fala ou fotografa e resumir a semana. Tudo é sugestão: você confere antes de salvar.</p>
+    ${MLAI ? `<button class="chip share-tg" id="aiTg" aria-pressed="${S.aiOk}">${S.aiOk ? "✓ IA autorizada" : "IA desligada: pergunta antes de usar"}</button>
+    <p class="note" style="margin:0">Usa a cota gratuita do Gemini (Google). Ela é dividida por todos que usam o app, então às vezes pode pedir para esperar 1 minuto. Na cota gratuita, o Google pode usar fotos e textos para melhorar os produtos dele.</p>` : ""}
+  </section></div>`;
   if (typeof pwaPanel === "function") html += pwaPanel();
+  html += accountHTML();
   html += `<h2 class="sec" id="dataSec"><span class="t">Seus dados</span></h2><section class="panel stack">
     <p class="note" style="margin:0">${Cloud.ready ? "Seus registros ficam salvos na sua conta Claude e aparecem em qualquer aparelho em que você abrir o app logado." : "Nesta tela os registros ficam só neste aparelho. Exporte um backup de vez em quando."}</p>
     <button class="btn ghost wide" id="exp">Exportar backup (.json)</button>
@@ -3188,6 +3618,9 @@ function renderAjustes(){
   $("#sAct").onchange = e => { S.act = +e.target.value; touchSettings(); render(); };
   $("#sGoal").onchange = e => { S.goal = e.target.value; touchSettings(); render(); };
   $("#sDef").onchange = e => { S.def = +e.target.value; touchSettings(); render(); };
+  aiEngine().then(e => { ui.aiAvail = !!e; ui.aiName = e ? e.name : ""; const w = $("#aiSet"); if (w){ w.hidden = !e; const sm = w.querySelector("h2 small"); if (sm) sm.textContent = ui.aiName; else if (e) w.querySelector("h2").insertAdjacentHTML("beforeend", `<small>${esc(e.name)}</small>`); } });
+  $("#aiTg")?.addEventListener("click", () => { S.aiOk = !S.aiOk; touchSettings(); render(); });
+  bindAccount();
   $("#sAdapt").onclick = () => { S.adaptive = !S.adaptive; touchSettings(); render(); };
   [["#tWater","showWater"],["#tFast","showFast"],["#tMicro","showMicro"]].forEach(([id, k]) => $(id).onclick = () => { S[k] = !S[k]; touchSettings(); render(); });
   $("#sWater")?.addEventListener("change", e => { const v = num(e.target.value); S.waterGoal = v && v >= 500 && v <= 8000 ? Math.round(v) : null; touchSettings(); render(); });
@@ -3322,9 +3755,107 @@ function toast(msg, action){
 }
 let toastQ = null;
 
+/* ================= Conta Google, backup e amigos ================= */
+const Social = {profile:null, reqs:[], friends:[], at:0, busy:false};
+function socialStats(){
+  const today = todayKey(), mk = monthOf(today), ws = weekStart(today);
+  const wos = allWorkouts().filter(x => x.wo.done);
+  const month = wos.filter(x => monthOf(x.k) === mk), week = wos.filter(x => x.k >= ws && x.k <= today);
+  const vol = month.reduce((a, x) => a + x.wo.ex.reduce((b, e) => b + workSets(e).reduce((c, s) => c + (num(s.kg) || 0)*(num(s.r) || 0), 0), 0), 0);
+  let dd = 0; const [y, m] = mk.split("-").map(Number), days = new Date(y, m, 0).getDate();
+  for (let i = 1; i <= days; i++){ const k = `${mk}-${pad(i)}`; if (k > today) break; if (dayTotals(k).kcal > 500) dd++; }
+  const last = wos[wos.length - 1];
+  return {n:(Social.profile && Social.profile.n) || "Atleta", mk, mo:month.length, wk:week.length, dd, vol:Math.round(vol), ln:last ? String(last.wo.name).slice(0, 40) : "", lk:last ? last.k : ""};
+}
+async function socialRefresh(force){
+  if (!Account || !Account.user() || Social.busy) return;
+  if (!force && Date.now() - Social.at < 5*60000) return;
+  Social.busy = true;
+  try{
+    Social.profile = await Account.profile();
+    await Account.publishStats(socialStats());
+    [Social.reqs, Social.friends] = await Promise.all([Account.requests(), Account.friends()]);
+    Social.at = Date.now();
+    if (ui.tab === "evolucao" && !$("#sheetRoot").innerHTML) render();
+  }catch(e){} finally{ Social.busy = false; }
+}
+function socialHTML(){
+  if (!Account) return "";
+  const u = Account.user();
+  if (!u) return secH("Desafio com amigos", "", true) + `<section class="panel"><p class="note" style="margin:0">Entre com a conta Google em Ajustes para desafiar amigos: quem treina mais no mês e quem registra mais dias de dieta.</p><button class="btn ghost wide" id="goAcc" style="margin-top:10px">Entrar com Google</button></section>`;
+  const me = {...socialStats(), uid:u.uid, me:true}, mk = me.mk;
+  const ok = Social.friends.filter(f => f.ok), wait = Social.friends.filter(f => !f.ok);
+  const rows = [me].concat(ok.map(f => f.mk === mk ? f : {...f, mo:0, wk:0, dd:0, vol:0})).sort((a, b) => b.mo - a.mo || b.dd - a.dd || b.vol - a.vol);
+  const medal = i => ["🥇", "🥈", "🥉"][i] || `${i + 1}º`;
+  return secH("Desafio do mês", MONTHS[+mk.slice(5) - 1], true) + `<section class="panel">
+    ${Social.reqs.length ? `<div class="label" style="margin-bottom:6px">Pedidos de amizade</div><ul class="list-edit">${Social.reqs.map((r, i) => `<li><span>${esc(r.n || "Alguém")} quer ser seu amigo</span><button class="add" data-racc="${i}">Aceitar</button><button class="mini del" data-rdec="${i}" aria-label="Recusar">×</button></li>`).join("")}</ul><div style="height:10px"></div>` : ""}
+    <ul class="rank-list">${rows.map((r, i) => `<li class="${r.me ? "me" : ""}"><span class="pos">${medal(i)}</span><span class="nm">${esc(r.me ? `${me.n} (você)` : r.n || "Amigo")}<small class="num">${r.mo} ${r.mo === 1 ? "treino" : "treinos"} no mês · ${r.dd} dias de dieta${r.wk ? ` · ${r.wk} nesta semana` : ""}${!r.me && r.ln ? ` · último: ${esc(r.ln)}` : ""}</small></span>${!r.me ? `<button class="mini del" data-unf="${r.uid}" aria-label="Desfazer amizade com ${esc(r.n || "amigo")}">×</button>` : ""}</li>`).join("")}</ul>
+    ${!ok.length ? `<p class="note" style="margin:8px 0 0">Mande seu código para alguém e desafie quem treina mais neste mês.</p>` : ""}
+    ${wait.length ? `<p class="note" style="margin:8px 0 0">Aguardando aceitar: ${wait.map(f => esc((S.friendNames || {})[f.uid] || "amigo")).join(", ")}.</p>` : ""}
+    <div class="row" style="margin-top:12px"><div class="grow"><div class="label">Seu código</div><div class="code num">${Social.profile ? esc(Social.profile.c) : "…"}</div></div><button class="btn ghost" id="shareCode">Enviar</button></div>
+    <div class="row" style="margin-top:10px"><input id="frCode" type="text" maxlength="8" placeholder="Código do amigo" aria-label="Código do amigo" style="text-transform:uppercase" class="grow"><button class="btn" id="frAdd">Adicionar</button></div>
+    <p class="note" style="margin:8px 0 0">Seus amigos veem só o seu primeiro nome, quantos treinos e dias de dieta você fez e o nome do último treino. Peso, medidas e refeições não aparecem.</p>
+  </section>`;
+}
+function bindSocial(){
+  $("#goAcc")?.addEventListener("click", () => { ui.tab = "ajustes"; ui.scrollTo = "accSec"; render(); });
+  $("#shareCode")?.addEventListener("click", () => { if (Social.profile) shareLink(APP_URL, "Muscle Land", `Bora treinar junto no Muscle Land? Meu código de amigo é ${Social.profile.c}. Baixe o app:`); });
+  $("#frAdd")?.addEventListener("click", async () => {
+    const c = $("#frCode").value.trim(); if (c.length < 6){ toast("O código tem 6 letras e números"); return; }
+    const b = $("#frAdd"); b.disabled = true;
+    try{ const f = await Account.addByCode(c); S.friendNames = {...(S.friendNames || {}), [f.uid]:f.n}; touchSettings(); toast(`Pedido enviado para ${f.n || "seu amigo"}`); await socialRefresh(true); render(); }
+    catch(e){ b.disabled = false; toast(e && e.code === "not_found" ? "Não achei esse código. Confira com seu amigo" : e && e.code === "self" ? "Esse é o seu próprio código" : "Sem internet agora. Tente de novo"); }
+  });
+  view.querySelectorAll("[data-racc]").forEach(b => b.onclick = async () => { const r = Social.reqs[+b.dataset.racc]; try{ await Account.accept(r); S.friendNames = {...(S.friendNames || {}), [r.from]:r.n}; touchSettings(); toast(`Agora você e ${r.n} são amigos`); await socialRefresh(true); render(); }catch(e){ toast("Sem internet agora"); } });
+  view.querySelectorAll("[data-rdec]").forEach(b => b.onclick = async () => { const r = Social.reqs[+b.dataset.rdec]; try{ await Account.decline(r); Social.reqs = Social.reqs.filter(x => x !== r); render(); }catch(e){ toast("Sem internet agora"); } });
+  view.querySelectorAll("[data-unf]").forEach(b => b.onclick = async () => { try{ await Account.unfriend(b.dataset.unf); Social.friends = Social.friends.filter(f => f.uid !== b.dataset.unf); render(); toast("Amizade desfeita"); }catch(e){ toast("Sem internet agora"); } });
+}
+function accountHTML(){
+  if (!Account) return "";
+  const u = Account.user();
+  return `<h2 class="sec b" id="accSec"><span class="t">Conta e backup</span></h2><section class="panel stack">${u ? `
+    <p class="note" style="margin:0">Conectado como <b style="color:var(--ink)">${esc(u.displayName || u.email || "você")}</b>${u.email ? ` <span class="muted">(${esc(u.email)})</span>` : ""}.</p>
+    <p class="note" style="margin:0">Backup automático ligado: tudo o que você registra vai para a nuvem e volta sozinho se você trocar de celular. Ninguém mais tem acesso.</p>
+    <button class="btn ghost wide" id="accOut">Sair da conta</button>
+    <button class="btn ghost wide" id="accDel" style="color:var(--red-hot)">Excluir minha conta e meus dados da nuvem</button>
+    <div id="accDelOk" hidden><p class="note warn" style="margin:0 0 8px">Isso apaga para sempre o backup, o perfil de amigos e a conta do app. Os dados deste celular continuam aqui.</p><div class="row"><button class="btn grow" id="accDelYes">Excluir tudo da nuvem</button><button class="btn ghost" id="accDelNo">Cancelar</button></div></div>`
+    : `<p class="note" style="margin:0">Entre com sua conta Google para guardar tudo na nuvem, trocar de celular sem perder nada e desafiar amigos. É grátis.</p>
+    <button class="btn wide" id="accIn">Entrar com Google</button>`}</section>`;
+}
+function bindAccount(){
+  $("#accIn")?.addEventListener("click", async () => {
+    const b = $("#accIn"); b.disabled = true; b.textContent = "Abrindo o Google…";
+    try{ await Account.signIn(); }
+    catch(e){ b.disabled = false; b.textContent = "Entrar com Google"; if (!/popup-closed|cancelled/.test((e && e.code) || "")) toast("Não deu para entrar agora. Tente de novo"); }
+  });
+  $("#accOut")?.addEventListener("click", async () => { await Account.signOut().catch(() => {}); toast("Você saiu. Os dados continuam neste celular"); });
+  $("#accDel")?.addEventListener("click", () => { $("#accDelOk").hidden = false; });
+  $("#accDelNo")?.addEventListener("click", () => { $("#accDelOk").hidden = true; });
+  $("#accDelYes")?.addEventListener("click", async () => {
+    const b = $("#accDelYes"); b.disabled = true; b.textContent = "Apagando…";
+    try{ Cloud.ready = false; await Account.deleteAll(); toast("Conta e dados da nuvem apagados"); render(); }
+    catch(e){ b.disabled = false; b.textContent = "Excluir tudo da nuvem"; Cloud.ready = !!Account.user(); toast("Não deu para apagar agora. Tente de novo"); }
+  });
+}
+function initAccount(){
+  if (!Account) return;
+  Account.onChange(u => {
+    if (u){
+      Cloud.col = Account.dataCol(); Cloud.ready = true; setSync("busy", "conectando");
+      pull().then(() => socialRefresh(true));
+    } else { Cloud.ready = false; Cloud.col = null; Social.profile = null; Social.friends = []; Social.reqs = []; setSync("", "no celular"); }
+    if (!$("#sheetRoot").innerHTML) render();
+  });
+  if (Account.remembered()) setTimeout(() => Account.init().catch(() => {}), 600);
+  let last = Date.now();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && Cloud.ready && Account.user() && Date.now() - last > 20000){ last = Date.now(); pull(); socialRefresh(); }
+  });
+}
+
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "14/10/2026 16:52";
+const APP_BUILD = "14/10/2026 17:08";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
@@ -3356,7 +3887,7 @@ const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
 function hasData(){ return Object.keys(M).length > 0; }
 function daysSinceBackup(){ return S.lastBackup ? Math.floor((Date.now() - S.lastBackup) / 86400000) : null; }
 function backupBanner(){
-  if (!hasData()) return "";
+  if (!hasData() || (typeof Cloud !== "undefined" && Cloud.ready)) return "";
   const d = daysSinceBackup();
   if (d !== null && d < 7) return "";
   return `<section class="panel blue" style="margin-bottom:12px"><div class="row"><p class="grow" style="margin:0;font-size:14px">${d === null ? "Você ainda não fez backup." : `Último backup há ${d} dias.`} Seus registros ficam só neste celular.</p><button class="add" id="bkNow">Fazer</button></div></section>`;
@@ -3397,6 +3928,7 @@ loadLocal();
 render();
 initCloud();
 setTimeout(handleIncomingLink, 300);
+initAccount();
 window.addEventListener("hashchange", handleIncomingLink);
 if (Community){ setTimeout(() => communitySync(), 1200); window.addEventListener("online", () => communitySync(true)); }
 </script>

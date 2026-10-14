@@ -1,6 +1,6 @@
 // Service worker do Muscle Land: guarda o app para funcionar sem internet.
-const CACHE = "ciclo-de-ferro-2bbc5bb465";
-const ASSETS = ["./", "index.html", "manifest.webmanifest", "fonts/anton-latin-400-normal.woff2", "fonts/barlow-semi-condensed-latin-400-normal.woff2", "fonts/barlow-semi-condensed-latin-500-normal.woff2", "fonts/barlow-semi-condensed-latin-600-normal.woff2", "fonts/barlow-semi-condensed-latin-700-normal.woff2", "fonts/permanent-marker-latin-400-normal.woff2", "icons/apple-touch-icon.png", "icons/favicon-32.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/og-image.jpg", "vendor/chart.umd.js", "vendor/zxing.min.js"];
+const CACHE = "ciclo-de-ferro-4c6a4b9290";
+const ASSETS = ["./", "index.html", "manifest.webmanifest", "fonts/anton-latin-400-normal.woff2", "fonts/barlow-semi-condensed-latin-400-normal.woff2", "fonts/barlow-semi-condensed-latin-500-normal.woff2", "fonts/barlow-semi-condensed-latin-600-normal.woff2", "fonts/barlow-semi-condensed-latin-700-normal.woff2", "fonts/permanent-marker-latin-400-normal.woff2", "icons/apple-touch-icon.png", "icons/favicon-32.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/og-image.jpg", "vendor/chart.umd.js", "vendor/fbsdk.js", "vendor/zxing.min.js"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
