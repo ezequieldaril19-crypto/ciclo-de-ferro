@@ -1,0 +1,23 @@
+name: Lembretes do Muscle Land
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: lembretes
+  cancel-in-progress: false
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save --no-audit --no-fund firebase-admin@14.4.0
+      - run: node .github/scripts/lembretes.mjs
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
