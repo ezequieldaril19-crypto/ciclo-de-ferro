@@ -1009,7 +1009,7 @@ async function remoteSearch(q){
 // Base da comunidade (Firebase Firestore via REST): alimentos cadastrados por qualquer usuário, visíveis para todos.
 // Login anônimo do Firebase: não pede nome nem e-mail; só identifica quem pode editar cada cadastro.
 const Community = (() => {
-  const CFG = null;
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com"};
   if (!CFG || !CFG.apiKey || !CFG.projectId) return null;
   const LS = "muscleLand.community", AU = "muscleLand.auth";
   const DOCS = `${CFG.fs}/v1/projects/${CFG.projectId}/databases/(default)/documents`;
@@ -2790,7 +2790,7 @@ function toast(msg, action){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "14/10/2026 14:51";
+const APP_BUILD = "14/10/2026 15:40";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
