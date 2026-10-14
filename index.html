@@ -793,7 +793,8 @@ function communityFoods(){
   if (comMemo.sig === sig) return comMemo.list;
   const me = Community.uid();
   const sids = new Set(S.custom.map(c => c.sid).filter(Boolean)), bcs = new Set(S.custom.map(c => c.bc).filter(Boolean)), names = new Set(S.custom.map(c => norm(foodLabel(c))));
-  const list = Object.entries(Community.items()).filter(([id, d]) => !sids.has(id) && !(d.bc && bcs.has(d.bc)) && !names.has(norm(foodLabel(d))))
+  const HIDE = new Set(["25d06hi3gmd08g8", "o3l2srbxq8ezuiq"]); // testes automáticos publicados por engano em 14/10/2026
+  const list = Object.entries(Community.items()).filter(([id, d]) => !HIDE.has(id) && !sids.has(id) && !(d.bc && bcs.has(d.bc)) && !names.has(norm(foodLabel(d))))
     .map(([id, d]) => { const n = foodLabel(d), v = Community.votes(id); return {key:"s"+id, sid:id, n, cat:"Comunidade", src:3, k:d.k, p:d.p, c:d.c, f:d.f, nn:norm(n), shared:true, own: !!me && d.uid === me, votes:v, ver:v >= 2}; });
   comMemo = {sig, list};
   return list;
@@ -3929,7 +3930,7 @@ function bindReminders(){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "14/10/2026 17:19";
+const APP_BUILD = "14/10/2026 18:16";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
