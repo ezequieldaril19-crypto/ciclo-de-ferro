@@ -81,6 +81,10 @@ service cloud.firestore {
         && str(request.resource.data.tok, 4096) && str(request.resource.data.tz, 64)
         && request.resource.data.r is list && request.resource.data.r.size() <= 8 && stamped();
     }
+    // marca de versão: o app lê regras/v4 (sem login) para saber se estas regras já estão publicadas
+    match /regras/{v} {
+      allow get: if v == 'v4';
+    }
     // pushlog: só a tarefa agendada (conta de serviço, que ignora estas regras)
 
     // ---------- Conta Google: backup privado, perfil, amigos ----------

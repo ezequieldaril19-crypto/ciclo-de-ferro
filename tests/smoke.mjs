@@ -66,7 +66,7 @@ page.on("pageerror", e => errors.push(String(e)));
 page.on("console", m => { if (m.type() === "error" && !/Failed to load resource|net::ERR/.test(m.text())) errors.push(m.text()); });
 
 console.log("Abrindo o app com dados de exemplo");
-await page.addInitScript(data => { if (!sessionStorage.getItem("seeded")){ localStorage.setItem("cicloFerro.v1", JSON.stringify(data)); sessionStorage.setItem("seeded", "1"); } }, seed());
+await page.addInitScript(data => { if (!sessionStorage.getItem("seeded")){ localStorage.setItem("cicloFerro.v1", JSON.stringify(data)); localStorage.setItem("muscleLand.rules", "3"); sessionStorage.setItem("seeded", "1"); } }, seed());
 await page.goto(BASE);
 await page.waitForSelector("#view .kcal-big");
 ok(await page.title() === "Muscle Land", "título da página");
@@ -165,6 +165,7 @@ ok(await page.evaluate(() => getDay(todayKey()).items.some(i => /Banana/i.test(i
 
 console.log("Relatório para imprimir");
 await page.click('.tabs button[data-tab="ajustes"]');
+ok(await page.evaluate(() => { rulesOk = false; render(); const hidden = !document.querySelector("#accIn") && !document.querySelector("#remOn"); rulesOk = true; render(); return hidden; }), "sem as regras publicadas, conta e lembretes ficam escondidos");
 ok(await page.evaluate(() => !!document.querySelector("#accIn") && /Entrar com Google/.test(document.querySelector("#accSec").nextElementSibling.textContent)), "Ajustes mostra Entrar com Google");
 ok(await page.evaluate(() => !!Reminders && /Lembretes/.test(document.querySelector("#view").innerText)), "Ajustes mostra os lembretes");
 const rep = await page.evaluate(() => reportHTML(30));

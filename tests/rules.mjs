@@ -56,6 +56,9 @@ if (st.j && st.j.fields && st.j.fields.c.integerValue === "2"){ passes++; consol
 await expect("avisa erro num alimento", put(ANON2, "reports/x1", {fid:"f1", why:"Valores errados", uid:"anon2"}, {currentDocument:{exists:false}}), "ok");
 await expect("ninguém lê os avisos", call("GET", "/reports/x1", ANON2), "no");
 
+await expect("marca de versão das regras (404 = publicada)", call("GET", "/regras/v4", null).then(r => ({...r, status: r.status === 404 ? 200 : r.status})), "ok");
+await expect("só a marca v4 é liberada", call("GET", "/regras/v3", null), "no");
+
 console.log("Lembretes");
 const push = {tok:"token-fcm-123", tz:"America/Sao_Paulo", r:[{h:"07:00", k:"peso"}, {h:"20:30", k:"jantar"}]};
 await expect("liga lembretes no próprio aparelho", put(ANON1, "push/anon1", push), "ok");

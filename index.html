@@ -1590,12 +1590,20 @@ const Community = (() => {
     await commit([{update:{name:`${ROOT}/push/${auth.uid}`, fields:fieldsOf({tok:o.tok, tz:o.tz, r:o.r.slice(0, 8).map(x => ({h:x.h, k:x.k}))})}, updateTransforms:stamp}]);
   }
   async function delPush(){ await token(); await commit([{delete:`${ROOT}/push/${auth.uid}`}]); }
+  // as regras de firestore.rules já estão publicadas? Elas liberam ler regras/v4 (dá 404, documento vazio); as antigas negam (403)
+  async function rulesReady(){
+    const h = {}; if (typeof appCheckToken === "function"){ const ac = await appCheckToken().catch(() => null); if (ac) h["X-Firebase-AppCheck"] = ac; }
+    const r = await fetch(`${DOCS}/regras/v4?key=${CFG.apiKey}`, {headers:h});
+    if (r.status === 403) return false;
+    if (r.ok || r.status === 404) return true;
+    throw new Error("rules " + r.status);
+  }
   async function report(fid, why){
     await token();
     await commit([{update:{name:`${ROOT}/reports/${newId()}`, fields:{fid:enc(fid), why:enc(String(why).slice(0, 200)), uid:enc(auth.uid)}}, updateTransforms:stamp, currentDocument:{exists:false}}]);
   }
   return {
-    sync, report, vote, publishDoc, removeDoc, setPush, delPush,
+    sync, report, vote, publishDoc, removeDoc, setPush, delPush, rulesReady,
     publish: (food, id) => publishDoc("foods", food, id),
     remove: id => removeDoc("foods", id),
     items: () => cache.foods.items,
@@ -4270,7 +4278,7 @@ async function socialRefresh(force){
   }catch(e){} finally{ Social.busy = false; }
 }
 function socialHTML(){
-  if (!Account) return "";
+  if (!Account || (!rulesOk && !Account.user())) return "";
   const u = Account.user();
   if (!u) return secH("Desafio com amigos", "", true) + `<section class="panel"><p class="note" style="margin:0">Entre com a conta Google em Ajustes para desafiar amigos: quem treina mais no mês e quem registra mais dias de dieta.</p><button class="btn ghost wide" id="goAcc" style="margin-top:10px">Entrar com Google</button></section>`;
   const me = {...socialStats(), uid:u.uid, me:true}, mk = me.mk;
@@ -4300,8 +4308,19 @@ function bindSocial(){
   view.querySelectorAll("[data-rdec]").forEach(b => b.onclick = async () => { const r = Social.reqs[+b.dataset.rdec]; try{ await Account.decline(r); Social.reqs = Social.reqs.filter(x => x !== r); render(); }catch(e){ toast("Sem internet agora"); } });
   view.querySelectorAll("[data-unf]").forEach(b => b.onclick = async () => { try{ await Account.unfriend(b.dataset.unf); Social.friends = Social.friends.filter(f => f.uid !== b.dataset.unf); render(); toast("Amizade desfeita"); }catch(e){ toast("Sem internet agora"); } });
 }
+// Conta e lembretes só aparecem depois que as regras novas estão publicadas no Firebase (o app confere sozinho)
+const RULES_LS = "muscleLand.rules";
+let rulesOk = (() => { try{ return localStorage.getItem(RULES_LS) === "3"; }catch(e){ return false; } })();
+function checkRules(){
+  if (!Account || !Community || rulesOk || navigator.onLine === false) return;
+  Community.rulesReady().then(ok => {
+    if (!ok) return;
+    rulesOk = true; try{ localStorage.setItem(RULES_LS, "3"); }catch(e){}
+    if (!$("#sheetRoot").innerHTML && (ui.tab === "ajustes" || ui.tab === "evolucao")) render();
+  }).catch(() => {});
+}
 function accountHTML(){
-  if (!Account) return "";
+  if (!Account || (!rulesOk && !Account.user())) return "";
   const u = Account.user();
   return `<h2 class="sec b" id="accSec"><span class="t">Conta e backup</span></h2><section class="panel stack">${u ? `
     <p class="note" style="margin:0">Conectado como <b style="color:var(--ink)">${esc(u.displayName || u.email || "você")}</b>${u.email ? ` <span class="muted">(${esc(u.email)})</span>` : ""}.</p>
@@ -4337,6 +4356,7 @@ function initAccount(){
     if (!$("#sheetRoot").innerHTML) render();
   });
   if (Account.remembered()) setTimeout(() => Account.init().catch(() => {}), 600);
+  setTimeout(checkRules, 2000); window.addEventListener("online", checkRules);
   let last = Date.now();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && Cloud.ready && Account.user() && Date.now() - last > 20000){ last = Date.now(); pull(); socialRefresh(); }
@@ -4351,7 +4371,7 @@ function remState(){
   return S.rem;
 }
 function remindersHTML(){
-  if (!Reminders) return "";
+  if (!Reminders || (!rulesOk && !(S.rem && S.rem.on))) return "";
   const st = remState(), perm = Reminders.permission();
   return secH("Lembretes", st.on ? "ligados" : "") + `<section class="panel stack">
     ${perm === "unsupported" ? `<p class="note warn" style="margin:0">Este aparelho ou navegador não aceita notificações do app.</p>` : `
