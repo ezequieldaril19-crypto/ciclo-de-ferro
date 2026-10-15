@@ -208,6 +208,31 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .seg.modes button{flex:1;padding:10px 0;font-size:14px}
 .seg.scope{width:100%}
 .seg.scope button{flex:1;padding:9px 2px;font-size:12px}
+/* Editor de metas */
+.goal-edit{margin-left:auto;flex:none;background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink);padding:7px 11px;font-weight:700;font-size:13px;letter-spacing:.04em}
+.goal-edit:active{background:var(--red)}
+.glabel{margin:4px 0 0;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.gtabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.gtabs button{border:0;padding:8px 4px 7px;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:var(--f-impact);font-size:14px;letter-spacing:.05em;text-transform:uppercase;opacity:.4;transform:rotate(-1deg);clip-path:polygon(0 6%,97% 0,100% 94%,3% 100%)}
+.gtabs button small{font-family:var(--f-body);font-size:11px;letter-spacing:0;text-transform:none;font-weight:600}
+.gtabs button[aria-selected=true]{opacity:1;transform:rotate(-1deg) scale(1.04)}
+.gtabs .A{background:var(--red);color:var(--ink)} .gtabs .M{background:var(--ink);color:#0b0b0e} .gtabs .B{background:var(--blue);color:#02060f}
+.gkcal{display:flex;align-items:center;justify-content:center;gap:10px}
+.gkcal input[type=text]{width:132px;flex:none;text-align:center;font-family:var(--f-impact);font-size:34px;padding:4px 6px}
+.gkcal b{font-family:var(--f-impact);font-weight:400;font-size:42px;line-height:1}
+.gkcal span{color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em;font-size:13px}
+.gbar{display:flex;height:10px;background:var(--panel-2)}
+.gbar i{display:block;height:100%;transition:width .15s}
+.gbar .p{background:var(--prot)} .gbar .c{background:var(--carb)} .gbar .f{background:var(--fat)}
+.gm{border-left:4px solid var(--line-2);padding:2px 0 0 10px}
+.gm.p{border-color:var(--prot)} .gm.c{border-color:var(--carb)} .gm.f{border-color:var(--fat)}
+.gm-h{display:flex;align-items:center;gap:8px}
+.gm-n{font-family:var(--f-impact);text-transform:uppercase;letter-spacing:.06em;font-size:16px;flex:none}
+.gm-alt{flex:1;min-width:0;color:var(--muted);font-size:12px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gm-h input.gm-v{width:72px;flex:none;text-align:right;padding:6px 8px;font-size:17px;font-weight:700}
+.gm-u{width:34px;flex:none;color:var(--muted);font-size:12px;font-weight:700}
+.gm input[type=range]{width:100%;margin:8px 0 2px;accent-color:var(--red);height:22px}
+.gm.p input[type=range]{accent-color:var(--prot)} .gm.c input[type=range]{accent-color:#d9d6ce}
 /* Busca de alimentos: folha alta, ferramentas numa barra só e lista ocupando o resto */
 .sheet.tall{height:94%;max-height:94%}
 .sheet.tall .inner{flex:1;min-height:0;overflow:hidden;gap:8px;padding-top:18px;padding-bottom:0}
@@ -510,7 +535,7 @@ function allExercises(){ return EXERCISES.concat((S.customEx || []).map(e => ({n
 const DEFAULT_SETTINGS = () => ({
   v:1, setup:false, sex:"m", age:30, height:175, weight:80, act:1.55, goal:"cut", def:20,
   prot:2.2, fat:{A:0.6, M:0.8, B:1.1}, ratio:{A:2, M:1.2, B:0.5},
-  manualKcal:null,
+  manualKcal:null, goalMode:"auto", cg:null, fibGoal:null, naMax:null,
   week:["B","A","M","A","B","A","M"],
   days:3, level:"ini", program:"golden6",
   meals: DEFAULT_MEALS.map(m => ({...m})), saved:[], customEx:[], myWo:[], units:{}, lastUnit:{}, tipSwipe:false,
@@ -541,6 +566,8 @@ function mergeSettings(raw){
   if (!Array.isArray(s.voted)) s.voted = [];
   if (!s.aiWeek || typeof s.aiWeek !== "object") s.aiWeek = {};
   if (!s.recentM || typeof s.recentM !== "object") s.recentM = {};
+  if (s.cg && !(typeof s.cg === "object" && ["pct","g","gkg"].includes(s.cg.unit) && ["A","M","B"].every(t => s.cg[t] && typeof s.cg[t] === "object"))){ s.cg = null; s.goalMode = "auto"; }
+  if (s.goalMode === "custom" && !s.cg) s.goalMode = "auto";
   return s;
 }
 function loadLocal(){
@@ -689,6 +716,30 @@ function targetKcal(w, k){
 }
 // Ciclo: proteína fixa, gordura por tipo de dia, carbo distribuído para fechar a média semanal
 function cyclePlan(w, k){
+  const plan = autoPlan(w, k);
+  if (S.goalMode !== "custom" || !S.cg) return plan;
+  plan.auto = {A:plan.A, M:plan.M, B:plan.B, avg:plan.avg};
+  ["A","M","B"].forEach(t => { const g = goalGrams(S.cg[S.cg.same ? "A" : t], S.cg.unit, w); plan[t] = {p:Math.round(g.p), c:Math.round(g.c), f:Math.round(g.f), kcal:Math.round(4*g.p + 4*g.c + 9*g.f)}; });
+  plan.avg = Math.round(S.week.reduce((a, t) => a + plan[t].kcal, 0) / 7);
+  plan.custom = true; plan.same = !!S.cg.same;
+  return plan;
+}
+/* Metas personalizadas (como no Macros): cada tipo de dia guarda kcal e macros na unidade escolhida
+   pct = kcal + % das calorias · g = gramas · gkg = gramas por kg de peso (acompanha o peso) */
+function goalGrams(g, unit, w){
+  if (unit === "pct") return {p:g.k*g.p/400, c:g.k*g.c/400, f:g.k*g.f/900};
+  if (unit === "gkg") return {p:g.p*w, c:g.c*w, f:g.f*w};
+  return {p:g.p, c:g.c, f:g.f};
+}
+function goalFromGrams(gr, unit, w){
+  const k = 4*gr.p + 4*gr.c + 9*gr.f || 1;
+  if (unit === "pct"){ const P = Math.round(400*gr.p/k), F = Math.round(900*gr.f/k); return {k:Math.round(k), p:P, c:Math.max(0, 100 - P - F), f:F}; }
+  if (unit === "gkg"){ const r2 = x => Math.round(x*100)/100; return {p:r2(gr.p/w), c:r2(gr.c/w), f:r2(gr.f/w)}; }
+  return {p:Math.round(gr.p), c:Math.round(gr.c), f:Math.round(gr.f)};
+}
+const fiberGoal = kcal => S.fibGoal || Math.round(kcal/1000*14);
+const sodiumMax = () => S.naMax || 2000;
+function autoPlan(w, k){
   const T = targetKcal(w, k), P = S.prot * w, fat = t => S.fat[t] * w;
   const counts = {A:0,M:0,B:0}; S.week.forEach(t => counts[t]++);
   let fixed = 0, ratioSum = 0;
@@ -1724,15 +1775,15 @@ function renderHoje(){
   if (typeof backupBanner === "function") html += backupBanner();
   html += dateBar(k, "Hoje");
   html += `<section class="panel" style="margin-top:12px">
-    <div class="row" style="margin-bottom:12px"><button class="daytype ${type}" id="cycleType" title="Toque para trocar o tipo deste dia">${TYPE_NAME[type]} ${overridden?"<small>(ajustado)</small>":""}</button></div>
+    <div class="row" style="margin-bottom:12px">${plan0.same ? `<span class="daytype M">Meta personalizada</span>` : `<button class="daytype ${type}" id="cycleType" title="Toque para trocar o tipo deste dia">${TYPE_NAME[type]} ${overridden?"<small>(ajustado)</small>":""}</button>`}<button class="goal-edit" id="goalEdit" aria-label="Editar metas de calorias e macros">✎ Metas</button></div>
     <div class="hero"><div>
       <div class="kcal-big num">${r0(t.kcal)}<small> / ${tg.kcal} kcal</small></div>
       <div class="kcal-sub">${remain >= 0 ? `Restam <b class="num">${r0(remain)} kcal</b>` : `<b class="num bad">${r0(-remain)} kcal</b> acima da meta`}</div>
     </div>
     <div><div class="rank">${rankSvg()}<span class="letter ${rk?"":"none"}">${rk || "–"}</span></div><div class="rank-cap">${isToday && !rk ? "Em andamento" : "Rank do dia"}</div></div></div>
     <div class="bars">${barHTML("p","Proteína",t.p,tg.p)}${barHTML("c","Carbo",t.c,tg.c)}${barHTML("f","Gordura",t.f,tg.f)}</div>
-    ${S.showMicro && d && d.items.length ? (() => { const mi = dayMicro(k), fbT = Math.round(tg.kcal/1000*14), naOk = mi.na <= 2000;
-      return `<div class="micro num"><span>Fibra <b>${r0(mi.fb)}</b> / ${fbT} g</span><span class="${naOk ? "" : "bad"}">Sódio <b>${r0(mi.na).toLocaleString("pt-BR")}</b> / 2.000 mg</span>${mi.kcal && mi.cover < mi.kcal*0.8 ? `<small>parcial: alguns alimentos sem esse dado</small>` : ""}</div>`; })() : ""}
+    ${S.showMicro && d && d.items.length ? (() => { const mi = dayMicro(k), fbT = fiberGoal(tg.kcal), naM = sodiumMax(), naOk = mi.na <= naM;
+      return `<div class="micro num"><span>Fibra <b>${r0(mi.fb)}</b> / ${fbT} g</span><span class="${naOk ? "" : "bad"}">Sódio <b>${r0(mi.na).toLocaleString("pt-BR")}</b> / ${naM.toLocaleString("pt-BR")} mg</span>${mi.kcal && mi.cover < mi.kcal*0.8 ? `<small>parcial: alguns alimentos sem esse dado</small>` : ""}</div>`; })() : ""}
     ${plan0.tdeeReal ? `<p class="note" style="margin:8px 0 0">Meta ajustada pelo seu gasto real: <span class="num">${plan0.tdeeReal.toLocaleString("pt-BR")} kcal/dia</span>.</p>` : ""}
   </section>`;
   html += secH("Refeições");
@@ -1779,7 +1830,8 @@ function renderHoje(){
   $("#goSetup")?.addEventListener("click", openSetup);
   $("#bkNow")?.addEventListener("click", () => { ui.tab = "ajustes"; ui.scrollTo = "dataSec"; render(); });
   bindDateBar();
-  $("#cycleType").onclick = () => {
+  $("#goalEdit").onclick = openGoals;
+  if ($("#cycleType")) $("#cycleType").onclick = () => {
     const dd = getDay(k, true), base = S.week[dateOf(k).getDay()], order = ["A","M","B"];
     const next = order[(order.indexOf(type)+1)%3];
     if (next === base) delete dd.type; else dd.type = next;
@@ -3596,6 +3648,146 @@ function renderEvolucao(){
   }
 }
 
+/* ================= Editor de metas: calorias e macros (no estilo do Macros) ================= */
+function openGoals(){
+  const today = todayKey(), w = latestWeight(today), auto = autoPlan(w, today), bm = Math.round(bmr(w));
+  const MAC = [["p","Proteína"],["c","Carbo"],["f","Gordura"]], KPG = {p:4, c:4, f:9};
+  const UNITS = [["pct","% das kcal"],["g","Gramas"],["gkg","g por kg"]], UT = {pct:"%", g:"g", gkg:"g/kg"};
+  const RANGE = {pct:{p:[0,100,1], c:[0,100,1], f:[0,100,1]}, g:{p:[0,400,1], c:[0,900,1], f:[0,250,1]}, gkg:{p:[0,5,0.05], c:[0,12,0.05], f:[0,3,0.05]}};
+  const PRESETS = [["Equilibrada",30,40,30],["Mais proteína",40,35,25],["Low carb",35,20,45],["Mais carbo",25,55,20]];
+  const seed = unit => { const o = {same:false, unit}; ["A","M","B"].forEach(t => o[t] = goalFromGrams(auto[t], unit, w)); return o; };
+  let D = S.cg ? JSON.parse(JSON.stringify(S.cg)) : seed("pct");
+  let mode = S.goalMode === "custom" ? "custom" : "auto", tab = "A", week = S.week.slice();
+  const tk = () => D.same ? "A" : tab, cur = () => D[tk()];
+  const gramsOf = t => goalGrams(D[t], D.unit, w);
+  const kcalOf = t => { const g = gramsOf(t); return Math.round(4*g.p + 4*g.c + 9*g.f); };
+  const fmtV = v => D.unit === "gkg" ? (Math.round(v*100)/100).toLocaleString("pt-BR", {maximumFractionDigits:2}) : String(Math.round(v));
+  const nDays = t => week.filter(x => x === t).length;
+
+  openSheet(`${sheetHead("Calorias e macros")}
+    <div class="seg modes" role="group" aria-label="Como definir as metas">${[["auto","Automática"],["custom","Personalizada"]].map(([v,l]) => `<button data-gmode="${v}" aria-pressed="${mode === v}">${l}</button>`).join("")}</div>
+    <div id="gBody" class="stack"></div>
+    <h4 class="glabel">Micronutrientes</h4>
+    <div class="grid2">
+      <div class="field"><label for="gFib">Fibra, meta (g/dia)</label><input id="gFib" type="text" inputmode="numeric" placeholder="Automática" value="${S.fibGoal || ""}"></div>
+      <div class="field"><label for="gNa">Sódio, limite (mg/dia)</label><input id="gNa" type="text" inputmode="numeric" placeholder="2.000 (OMS)" value="${S.naMax || ""}"></div>
+    </div>
+    <p class="note" style="margin:0">Vazio usa o padrão: fibra de 14 g para cada 1.000 kcal e sódio até 2.000 mg.</p>
+    <div class="row"><button class="btn grow" id="gSave">Salvar metas</button><button class="btn ghost" id="gCancel">Cancelar</button></div>`);
+
+  function body(){
+    const B = $("#gBody");
+    if (mode === "auto"){
+      B.innerHTML = `<p class="note" style="margin:0">O app calcula pelo seu perfil: gasto de <span class="num">${auto.tdee.toLocaleString("pt-BR")} kcal</span>, ${S.goal === "cut" ? `déficit de ${S.def}%` : S.goal === "bulk" ? "superávit de 10%" : "manutenção"}, proteína de ${fmt1(S.prot)} g por kg e o carbo mudando conforme o dia da semana.</p>
+        <table class="mac"><thead><tr><th>Dia</th><th>Prot</th><th>Carbo</th><th>Gord</th><th>kcal</th></tr></thead><tbody>
+        ${["A","M","B"].map(t => `<tr><td>${TYPE_NAME[t]}</td><td>${auto[t].p} g</td><td>${auto[t].c} g</td><td>${auto[t].f} g</td><td>${auto[t].kcal}</td></tr>`).join("")}</tbody></table>
+        <p class="note" style="margin:0">Quer escolher você mesmo as calorias e a divisão entre proteína, carbo e gordura? Toque em <b>Personalizada</b>. Ela começa com estes mesmos números.</p>`;
+      return;
+    }
+    const g = cur();
+    B.innerHTML = `
+      <div><div class="label" style="margin-bottom:6px">Metas</div>
+        <div class="seg modes" role="group" aria-label="Metas por dia">${[[1,"Iguais todo dia"],[0,"Por tipo de dia"]].map(([v,l]) => `<button data-gsame="${v}" aria-pressed="${!!D.same === !!v}">${l}</button>`).join("")}</div></div>
+      ${D.same ? "" : `<div class="gtabs" role="tablist" aria-label="Tipo de dia">${["A","M","B"].map(t => `<button class="${t}" role="tab" data-gtab="${t}" aria-selected="${tab === t}">${TYPE_NAME[t]}<small id="gtk-${t}"></small></button>`).join("")}</div>
+        <div><div class="label" style="margin-bottom:6px">Semana (toque para trocar)</div>
+        <div class="week">${week.map((t,i) => `<button class="${t}" data-gwd="${i}" aria-label="${WD[i]}: ${TYPE_NAME[t]}">${WD[i]}<b>${t === "A" ? "ALTO" : t === "M" ? "MÉD" : "BAIXO"}</b></button>`).join("")}</div>
+        <p class="note num" id="gAvg" style="margin:6px 0 0"></p></div>`}
+      <div><div class="label" style="margin-bottom:6px">Definir em</div>
+        <div class="seg modes" role="group" aria-label="Unidade">${UNITS.map(([v,l]) => `<button data-gunit="${v}" aria-pressed="${D.unit === v}">${l}</button>`).join("")}</div></div>
+      <div class="gkcal">${D.unit === "pct"
+        ? `<button class="mini" data-kst="-50" aria-label="Menos 50 kcal">−</button><input id="gK" class="num" type="text" inputmode="numeric" value="${g.k}" aria-label="Calorias do dia"><span>kcal</span><button class="mini" data-kst="50" aria-label="Mais 50 kcal">+</button>`
+        : `<b class="num" id="gKv"></b><span>kcal</span>`}</div>
+      <p class="note" style="margin:-6px 0 0;text-align:center">${D.unit === "pct" ? "Escolha as calorias e quanto delas vem de cada macro. A soma fica sempre em 100%." : "Calorias calculadas pelos macros: 4 kcal por grama de proteína e de carbo, 9 por grama de gordura."}</p>
+      <div class="gbar" aria-hidden="true"><i class="p"></i><i class="c"></i><i class="f"></i></div>
+      ${MAC.map(([m, l]) => { const [mn, mx, st] = RANGE[D.unit][m]; return `<div class="gm ${m}">
+        <div class="gm-h"><label class="gm-n" for="gv-${m}">${l}</label><span class="gm-alt num" id="ga-${m}"></span><input class="gm-v num" id="gv-${m}" data-gv="${m}" type="text" inputmode="decimal" value="${fmtV(g[m])}"><span class="gm-u">${UT[D.unit]}</span></div>
+        <input type="range" id="gr-${m}" data-gr="${m}" min="${mn}" max="${Math.max(mx, g[m])}" step="${st}" value="${g[m]}" aria-label="${l}">
+      </div>`; }).join("")}
+      <div><div class="label" style="margin-bottom:6px">Atalhos de divisão</div>
+        <div class="chips">${PRESETS.map(([n, p, c, f], i) => `<button class="chip" data-gpre="${i}">${n} <span class="muted num">${p}/${c}/${f}</span></button>`).join("")}</div></div>
+      <div id="gWarn" class="stack" style="gap:6px"></div>`;
+    bindBody(); refresh();
+  }
+  function refresh(skip){
+    if (mode !== "custom") return;
+    const g = cur(), gr = gramsOf(tk()), k = 4*gr.p + 4*gr.c + 9*gr.f || 1;
+    MAC.forEach(([m]) => {
+      const v = $("#gv-" + m), r = $("#gr-" + m), pc = Math.round(KPG[m]*gr[m]/k*100);
+      if (v && v !== skip) v.value = fmtV(g[m]);
+      if (r && r !== skip){ if (g[m] > +r.max) r.max = g[m]; r.value = g[m]; }
+      const parts = [];
+      if (D.unit !== "g") parts.push(`${Math.round(gr[m])} g`);
+      if (D.unit !== "gkg") parts.push(`${fmt1(gr[m]/w)} g/kg`);
+      if (D.unit !== "pct") parts.push(`${pc}%`);
+      $("#ga-" + m).textContent = parts.join(" · ");
+      $(".gbar ." + m).style.width = (D.unit === "pct" ? g[m] : pc) + "%";
+    });
+    if ($("#gKv")) $("#gKv").textContent = Math.round(k).toLocaleString("pt-BR");
+    if ($("#gK") && $("#gK") !== skip) $("#gK").value = g.k;
+    ["A","M","B"].forEach(t => { const e = $("#gtk-" + t); if (e) e.textContent = `${kcalOf(t).toLocaleString("pt-BR")} kcal · ${nDays(t)} ${nDays(t) === 1 ? "dia" : "dias"}`; });
+    if ($("#gAvg")) $("#gAvg").textContent = `Média da semana: ${Math.round(week.reduce((a, t) => a + kcalOf(t), 0)/7).toLocaleString("pt-BR")} kcal por dia.`;
+    const pk = gr.p/w, fk = gr.f/w, warn = [];
+    if (k < bm) warn.push(`Abaixo do seu metabolismo basal (${bm.toLocaleString("pt-BR")} kcal). Cortes muito agressivos tendem a custar massa muscular e rendimento.`);
+    if (pk < 1.6) warn.push(`Proteína de ${fmt1(pk)} g por kg. Para quem treina, o usual fica entre 1,6 e 2,2 g por kg.`);
+    if (fk < 0.5) warn.push(`Gordura de ${fmt1(fk)} g por kg. Abaixo de 0,5 g por kg pode atrapalhar a produção de hormônios.`);
+    $("#gWarn").innerHTML = warn.map(x => `<p class="note warn" style="margin:0">${x}</p>`).join("");
+  }
+  function setMacro(m, v){
+    const g = cur(); if (v == null || isNaN(v)) return;
+    if (D.unit === "pct"){
+      v = Math.max(0, Math.min(100, Math.round(v)));
+      const partner = m === "c" ? "f" : "c", other = ["p","c","f"].find(x => x !== m && x !== partner);
+      g[m] = v; let rest = 100 - v - g[other];
+      if (rest < 0){ g[other] = Math.max(0, g[other] + rest); rest = 100 - v - g[other]; }
+      g[partner] = Math.max(0, rest);
+    } else g[m] = Math.max(0, D.unit === "gkg" ? Math.round(v*100)/100 : Math.round(v));
+  }
+  function setKcal(v){ if (v == null || isNaN(v)) return; cur().k = Math.max(800, Math.min(8000, Math.round(v))); }
+  function bindBody(){
+    $("#gBody").querySelectorAll("[data-gsame]").forEach(b => b.onclick = () => {
+      const same = b.dataset.gsame === "1"; if (same === !!D.same) return;
+      if (same){ D.A = JSON.parse(JSON.stringify(D[tab])); tab = "A"; }
+      D.same = same; body();
+    });
+    $("#gBody").querySelectorAll("[data-gtab]").forEach(b => b.onclick = () => { tab = b.dataset.gtab; body(); });
+    $("#gBody").querySelectorAll("[data-gwd]").forEach(b => b.onclick = () => { const i = +b.dataset.gwd, o = ["A","M","B"]; week[i] = o[(o.indexOf(week[i]) + 1) % 3]; body(); });
+    $("#gBody").querySelectorAll("[data-gunit]").forEach(b => b.onclick = () => {
+      const u = b.dataset.gunit; if (u === D.unit) return;
+      ["A","M","B"].forEach(t => { D[t] = goalFromGrams(goalGrams(D[t], D.unit, w), u, w); });
+      D.unit = u; body();
+    });
+    $("#gBody").querySelectorAll("[data-kst]").forEach(b => b.onclick = () => { setKcal(cur().k + +b.dataset.kst); refresh(); });
+    $("#gK")?.addEventListener("input", e => { const v = num(e.target.value.replace(/\./g, "")); if (v != null && v >= 800) { setKcal(v); refresh(e.target); } });
+    $("#gK")?.addEventListener("change", e => { setKcal(num(e.target.value.replace(/\./g, "")) ?? cur().k); refresh(); });
+    $("#gBody").querySelectorAll("[data-gr]").forEach(r => r.addEventListener("input", () => { setMacro(r.dataset.gr, +r.value); refresh(r); }));
+    $("#gBody").querySelectorAll("[data-gv]").forEach(v => {
+      v.addEventListener("input", () => { const n = num(v.value); if (n != null){ setMacro(v.dataset.gv, n); refresh(v); } });
+      v.addEventListener("change", () => refresh());
+    });
+    $("#gBody").querySelectorAll("[data-gpre]").forEach(b => b.onclick = () => {
+      const [name, P, C, F] = PRESETS[+b.dataset.gpre], k = kcalOf(tk());
+      D[tk()] = D.unit === "pct" ? {k, p:P, c:C, f:F} : goalFromGrams({p:k*P/400, c:k*C/400, f:k*F/900}, D.unit, w);
+      refresh(); toast(`Divisão "${name}" aplicada`);
+    });
+  }
+  $("#sheetRoot").querySelectorAll("[data-gmode]").forEach(b => b.onclick = () => {
+    mode = b.dataset.gmode;
+    $("#sheetRoot").querySelectorAll("[data-gmode]").forEach(x => x.setAttribute("aria-pressed", x.dataset.gmode === mode));
+    body();
+  });
+  $("#gCancel").onclick = dismissSheet;
+  $("#gSave").onclick = () => {
+    const int = v => num(String(v).replace(/\./g, "")), fv = int($("#gFib").value), nv = int($("#gNa").value);
+    S.fibGoal = fv != null && fv >= 5 && fv <= 120 ? Math.round(fv) : null;
+    S.naMax = nv != null && nv >= 300 && nv <= 10000 ? Math.round(nv) : null;
+    S.goalMode = mode;
+    if (mode === "custom"){ S.cg = D; S.week = week; }
+    touchSettings(); closeSheet(); render();
+    toast(mode === "custom" ? "Metas personalizadas salvas" : "Metas automáticas ligadas");
+  };
+  body();
+}
+
 /* ================= Ajustes ================= */
 function renderAjustes(){
   const w = latestWeight(todayKey()), plan = cyclePlan(w, todayKey()), rec = recommendProgram(S.days, S.level);
@@ -3614,19 +3806,21 @@ function renderAjustes(){
   ${low < plan.bmr ? `<p class="note warn" style="margin:6px 0 0">Seu dia de carbo baixo fica abaixo do metabolismo basal. Cortes muito agressivos tendem a custar massa muscular e rendimento no treino.</p>` : ""}
   <button class="chip share-tg" id="sAdapt" aria-pressed="${S.adaptive}" style="margin-top:10px">${S.adaptive ? "✓ Ajustar a meta pelo meu gasto real" : "Usar só a fórmula"}</button>
   <p class="note" style="margin:6px 0 0">Com 2 a 4 semanas de peso e refeições registrados, o app calcula quanto você gasta de verdade e corrige a meta todo domingo. Veja em Evolução.</p>
-  <details style="margin-top:10px"><summary>Definir calorias manualmente</summary><div class="row" style="margin-top:8px"><input id="sMan" type="number" inputmode="numeric" placeholder="Ex.: 2200" value="${S.manualKcal || ""}"><span class="muted">kcal</span></div><p class="note">Deixe vazio para usar o cálculo automático.</p></details>
+  ${S.goalMode === "custom" ? "" : `<details style="margin-top:10px"><summary>Definir calorias manualmente</summary><div class="row" style="margin-top:8px"><input id="sMan" type="number" inputmode="numeric" placeholder="Ex.: 2200" value="${S.manualKcal || ""}"><span class="muted">kcal</span></div><p class="note">Deixe vazio para usar o cálculo automático.</p></details>`}
   </section>`;
 
-  html += secH("Ciclo de carbo", "", true) + `<section class="panel">
-    <div class="label" style="margin-bottom:6px">Semana (toque para trocar)</div>
+  html += secH(plan.custom ? "Metas" : "Metas e ciclo de carbo", plan.custom ? "personalizadas" : "automáticas", true) + `<section class="panel" id="goalSec">
+    ${plan.same ? "" : `<div class="label" style="margin-bottom:6px">Semana (toque para trocar)</div>
     <div class="week">${S.week.map((t,i) => `<button class="${t}" data-wd="${i}" aria-label="${WD[i]}: ${TYPE_NAME[t]}">${WD[i]}<b>${t === "A" ? "ALTO" : t === "M" ? "MÉD" : "BAIXO"}</b></button>`).join("")}</div>
-    <p class="note" style="margin:8px 0 12px">Coloque o carbo alto nos treinos mais pesados (pernas, costas) e o baixo nos dias de descanso.</p>
+    <p class="note" style="margin:8px 0 12px">Coloque o carbo alto nos treinos mais pesados (pernas, costas) e o baixo nos dias de descanso.</p>`}
     <table class="mac"><thead><tr><th>Dia</th><th>Prot</th><th>Carbo</th><th>Gord</th><th>kcal</th></tr></thead><tbody>
-      ${["A","M","B"].map(t => `<tr><td>${TYPE_NAME[t]}</td><td>${plan[t].p} g</td><td>${plan[t].c} g</td><td>${plan[t].f} g</td><td>${plan[t].kcal}</td></tr>`).join("")}</tbody></table>
-    <details style="margin-top:10px"><summary>Ajuste fino dos macros</summary><div class="grid2" style="margin-top:8px">
+      ${(plan.same ? [["A","Todos os dias"]] : ["A","M","B"].map(t => [t, TYPE_NAME[t]])).map(([t, l]) => `<tr><td>${l}</td><td>${plan[t].p} g</td><td>${plan[t].c} g</td><td>${plan[t].f} g</td><td>${plan[t].kcal}</td></tr>`).join("")}</tbody></table>
+    <button class="btn wide" id="sGoals" style="margin-top:12px">Editar calorias e macros</button>
+    ${plan.custom ? `<p class="note" style="margin:8px 0 0">Você definiu as metas à mão. O gasto calculado no perfil fica só como referência: <span class="num">${plan.auto.avg.toLocaleString("pt-BR")} kcal</span> seria a média automática.</p>` : `
+    <details style="margin-top:10px"><summary>Ajuste fino do cálculo automático</summary><div class="grid2" style="margin-top:8px">
       <div class="field" style="grid-column:1/-1"><label for="sProt">Proteína (g por kg)</label><input id="sProt" type="text" inputmode="decimal" value="${fmt1(S.prot)}"></div>
       ${["A","M","B"].map(t => `<div class="field"><label for="sF${t}">Gordura ${TYPE_NAME[t].split(" ")[1]} (g/kg)</label><input id="sF${t}" type="text" inputmode="decimal" value="${fmt1(S.fat[t])}"></div><div class="field"><label for="sR${t}">Peso do carbo ${TYPE_NAME[t].split(" ")[1]}</label><input id="sR${t}" type="text" inputmode="decimal" value="${fmt1(S.ratio[t])}"></div>`).join("")}
-    </div><p class="note">O "peso do carbo" define a proporção entre os dias. O app distribui o carboidrato para que a média da semana bata a meta de calorias.</p></details>
+    </div><p class="note">O "peso do carbo" define a proporção entre os dias. O app distribui o carboidrato para que a média da semana bata a meta de calorias.</p></details>`}
   </section>`;
 
   html += secH("Painel do dia", "", true) + `<section class="panel stack">
@@ -3634,7 +3828,7 @@ function renderAjustes(){
     <div class="field" ${S.showWater ? "" : "hidden"}><label for="sWater">Meta de água (ml por dia)</label><input id="sWater" type="text" inputmode="numeric" placeholder="${waterGoal()} (35 ml por kg)" value="${S.waterGoal || ""}"></div>
     <button class="chip share-tg" id="tFast" aria-pressed="${S.showFast}">${S.showFast ? "✓" : "○"} Jejum intermitente</button>
     <button class="chip share-tg" id="tMicro" aria-pressed="${S.showMicro}">${S.showMicro ? "✓" : "○"} Fibra e sódio</button>
-    <p class="note" style="margin:0">Fibra: meta de 14 g para cada 1.000 kcal. Sódio: limite de 2.000 mg por dia (OMS). A TACO mede os alimentos sem sal de cozinha; a tabela do IBGE já inclui o sal do preparo.</p>
+    <p class="note" style="margin:0">Fibra: ${S.fibGoal ? `meta de ${S.fibGoal} g por dia` : "meta de 14 g para cada 1.000 kcal"}. Sódio: limite de ${sodiumMax().toLocaleString("pt-BR")} mg por dia${S.naMax ? "" : " (OMS)"}. Você muda os dois em Editar calorias e macros. A TACO mede os alimentos sem sal de cozinha; a tabela do IBGE já inclui o sal do preparo.</p>
   </section>`;
   html += secH("Refeições do dia") + `<section class="panel">
     <ul class="list-edit">${S.meals.map((m,i) => `<li><span>${esc(m.n)}</span><button class="mini" data-up="${i}" aria-label="Subir ${esc(m.n)}" ${i===0?"disabled":""}>↑</button><button class="mini" data-down="${i}" aria-label="Descer ${esc(m.n)}" ${i===S.meals.length-1?"disabled":""}>↓</button><button class="mini del" data-rm="${i}" aria-label="Remover ${esc(m.n)}">×</button></li>`).join("")}</ul>
@@ -3692,7 +3886,7 @@ function renderAjustes(){
   view.innerHTML = html;
   if (ui.scrollTo){ document.getElementById(ui.scrollTo)?.scrollIntoView({block:"start"}); ui.scrollTo = null; }
 
-  const bindNum = (id, fn) => $(id).addEventListener("change", e => { const v = num(e.target.value); if (v != null) { fn(v); touchSettings(); render(); } });
+  const bindNum = (id, fn) => $(id)?.addEventListener("change", e => { const v = num(e.target.value); if (v != null) { fn(v); touchSettings(); render(); } });
   $("#sSex").onchange = e => { S.sex = e.target.value; touchSettings(); render(); };
   bindNum("#sAge", v => S.age = Math.round(v));
   bindNum("#sH", v => S.height = v);
@@ -3706,7 +3900,8 @@ function renderAjustes(){
   $("#sAdapt").onclick = () => { S.adaptive = !S.adaptive; touchSettings(); render(); };
   [["#tWater","showWater"],["#tFast","showFast"],["#tMicro","showMicro"]].forEach(([id, k]) => $(id).onclick = () => { S[k] = !S[k]; touchSettings(); render(); });
   $("#sWater")?.addEventListener("change", e => { const v = num(e.target.value); S.waterGoal = v && v >= 500 && v <= 8000 ? Math.round(v) : null; touchSettings(); render(); });
-  $("#sMan").addEventListener("change", e => { const v = num(e.target.value); S.manualKcal = v && v > 800 ? Math.round(v) : null; touchSettings(); render(); });
+  $("#sMan")?.addEventListener("change", e => { const v = num(e.target.value); S.manualKcal = v && v > 800 ? Math.round(v) : null; touchSettings(); render(); });
+  $("#sGoals").onclick = openGoals;
   bindNum("#sProt", v => S.prot = v);
   ["A","M","B"].forEach(t => { bindNum("#sF"+t, v => S.fat[t] = v); bindNum("#sR"+t, v => S.ratio[t] = Math.max(0.05, v)); });
   view.querySelectorAll("[data-wd]").forEach(b => b.onclick = () => { const i = +b.dataset.wd, o = ["A","M","B"]; S.week[i] = o[(o.indexOf(S.week[i])+1)%3]; touchSettings(); render(); });
@@ -3976,7 +4171,7 @@ function bindReminders(){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "14/10/2026 19:22";
+const APP_BUILD = "15/10/2026 07:19";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
