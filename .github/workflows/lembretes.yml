@@ -16,7 +16,7 @@ jobs:
           sparse-checkout: .github/scripts
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - run: npm install --no-save --no-audit --no-fund firebase-admin@14.4.0
       - run: node .github/scripts/lembretes.mjs
         env:
