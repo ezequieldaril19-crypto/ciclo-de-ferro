@@ -165,6 +165,8 @@ ok(await page.evaluate(() => getDay(todayKey()).items.some(i => /Banana/i.test(i
 
 console.log("Relatório para imprimir");
 await page.click('.tabs button[data-tab="ajustes"]');
+ok(await page.evaluate(() => !!document.querySelector("#accIn") && /Entrar com Google/.test(document.querySelector("#accSec").nextElementSibling.textContent)), "Ajustes mostra Entrar com Google");
+ok(await page.evaluate(() => !!Reminders && /Lembretes/.test(document.querySelector("#view").innerText)), "Ajustes mostra os lembretes");
 const rep = await page.evaluate(() => reportHTML(30));
 ok(/Relatório/.test(rep) && /Peso/.test(rep) && /Treinos/.test(rep) && /<table/.test(rep), "relatório em PDF monta as seções");
 

@@ -1226,7 +1226,7 @@ async function remoteSearch(q){
 // IA do Google (Gemini) pelo Firebase AI Logic, protegida pelo App Check.
 // O SDK (vendor/fbsdk.js) só é carregado na primeira vez que a pessoa usa a IA ou entra com a conta Google.
 const MLAI = (() => {
-  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94"};
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94", "account": true};
   if (!CFG || !CFG.apiKey || !CFG.appId || !CFG.recaptcha) return null;
   const MODELS = CFG.models || ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash"];
   let ready = null, modelIdx = 0, loaded = null;
@@ -1304,8 +1304,8 @@ async function appCheckToken(){ return MLAI ? MLAI.appCheckToken() : null; }
 // Conta Google (Firebase Auth): backup na nuvem, troca de celular, amigos e desafios.
 // Os dados ficam em users/<uid>/... no Firestore, e as regras só deixam o próprio dono ler e gravar.
 const Account = (() => {
-  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94"};
-  if (!MLAI || !CFG || !CFG.account) return null; // ligado só depois que as regras de conta estiverem publicadas
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94", "account": true};
+  if (!MLAI || !CFG || !CFG.account) return null; // precisa das regras de firestore.rules publicadas no Firebase
   const ROOT = `projects/${CFG.projectId}/databases/(default)/documents`, DOCS = `${CFG.fs}/v1/${ROOT}`, FLAG = "muscleLand.google";
   let ctx = null, user = null, ready = null;
   const subs = new Set();
@@ -1325,7 +1325,8 @@ const Account = (() => {
     prov.setCustomParameters({prompt:"select_account"});
     try{ await F.signInWithPopup(c.auth, prov); }
     catch(e){
-      if (e && /popup-blocked|operation-not-supported/.test(e.code || "")){ await F.signInWithRedirect(c.auth, prov); return; }
+      // sem janela (popup bloqueado): vai para a página do Google e volta; a marca faz o app conferir a conta na volta
+      if (e && /popup-blocked|operation-not-supported/.test(e.code || "")){ try{ localStorage.setItem(FLAG, "1"); }catch(_){} await F.signInWithRedirect(c.auth, prov); return; }
       throw e;
     }
   }
@@ -1440,7 +1441,7 @@ const Account = (() => {
 // Base da comunidade (Firebase Firestore via REST): alimentos, receitas e treinos que os usuários compartilham.
 // Login anônimo do Firebase: não pede nome nem e-mail; só identifica quem pode editar cada cadastro.
 const Community = (() => {
-  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94"};
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94", "account": true};
   if (!CFG || !CFG.apiKey || !CFG.projectId) return null;
   const LS = "muscleLand.community", AU = "muscleLand.auth";
   const ROOT = `projects/${CFG.projectId}/databases/(default)/documents`;
@@ -1608,8 +1609,8 @@ const Community = (() => {
 
 // Lembretes no celular: Firebase Cloud Messaging. Quem dispara no horário é uma tarefa agendada no GitHub (grátis).
 const Reminders = (() => {
-  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94"};
-  if (!MLAI || !CFG || !CFG.vapid || !CFG.account || !Community) return null; // liga junto com as regras da versão 3
+  const CFG = {"apiKey": "AIzaSyCQjHZOPWrZSrc_rdJ1na0oC1GHAVtrl7w", "projectId": "muscle-land-852a7", "fs": "https://firestore.googleapis.com", "auth": "https://identitytoolkit.googleapis.com", "token": "https://securetoken.googleapis.com", "recaptcha": "6LemUe8tAAAAAHp5YqwBTauFygaIiXCwIacBnJxO", "appId": "1:98331382211:web:bea903f00ab895b4bead76", "authDomain": "muscle-land-852a7.firebaseapp.com", "messagingSenderId": "98331382211", "vapid": "BDbwvI7AFq_2JlBV2CeHhlV35roRPLA5xfbxP6mFalNUXliT-0_yqmYea4M857V5qSZBoVe6CJhNxKzp3bG8U94", "account": true};
+  if (!MLAI || !CFG || !CFG.vapid || !CFG.account || !Community) return null; // liga junto com a conta (mesmas regras)
   const supported = () => "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
   async function deviceToken(){
     const c = await MLAI.sdk(), F = c.F;
@@ -4383,7 +4384,7 @@ function bindReminders(){
 
 /* ================= Início ================= */
 /* ===== Versão instalável: offline, instalação, backup em arquivo, atualização ===== */
-const APP_BUILD = "15/10/2026 20:40";
+const APP_BUILD = "15/10/2026 21:00";
 if ("serviceWorker" in navigator){
   let hadController = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {

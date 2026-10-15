@@ -1,0 +1,118 @@
+rules_version = '2';
+// Regras do Firestore do Muscle Land (projeto muscle-land-852a7).
+// Publicar: Firebase Console > Firestore Database > Regras > colar este arquivo > Publicar
+// (ou: firebase deploy --only firestore:rules). Testadas no emulador por tests/rules.mjs.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    // conta Google (backup, amigos); a comunidade e os lembretes usam login anônimo
+    function google() { return signedIn() && request.auth.token.firebase.sign_in_provider == 'google.com'; }
+    function str(v, max) { return v is string && v.size() <= max; }
+    function numIn(v, hi) { return (v is int || v is float) && v >= 0 && v <= hi; }
+    function stamped() { return request.resource.data.t == request.time; }
+    function onlyKeys(keys) { return request.resource.data.keys().hasOnly(keys); }
+
+    // ---------- Comunidade: leitura pública; cada cadastro só é editado por quem criou ----------
+    function sharedBase() {
+      return request.resource.data.uid == me() && request.resource.data.del is bool && stamped();
+    }
+    function ownerEdit() { return resource.data.uid == me() && request.resource.data.uid == me(); }
+    // "tirar da comunidade": só marca del = true
+    function softDelete() { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['del', 't']) && stamped(); }
+
+    match /foods/{id} {
+      allow read: if true;
+      function validFood() {
+        let d = request.resource.data;
+        return onlyKeys(['n', 'b', 'k', 'p', 'c', 'f', 'fb', 'na', 'por', 'bc', 'u', 'uid', 'del', 'v', 't'])
+          && str(d.n, 60) && d.n.size() > 0 && str(d.b, 40) && str(d.bc, 14)
+          && numIn(d.k, 900) && numIn(d.p, 100) && numIn(d.c, 100) && numIn(d.f, 100) && numIn(d.por, 2000)
+          && (!('fb' in d) || numIn(d.fb, 100)) && (!('na' in d) || numIn(d.na, 50000))
+          && d.u is list && d.u.size() <= 6 && sharedBase();
+      }
+      allow create: if signedIn() && validFood();
+      allow update: if signedIn() && ownerEdit() && (validFood() || softDelete());
+    }
+    match /recipes/{id} {
+      allow read: if true;
+      function validRecipe() {
+        let d = request.resource.data;
+        return onlyKeys(['n', 'items', 'servings', 'unit', 'yieldG', 'uid', 'del', 'v', 't'])
+          && str(d.n, 50) && d.n.size() > 0 && d.items is list && d.items.size() <= 40
+          && numIn(d.servings, 100) && str(d.unit, 24) && numIn(d.yieldG, 20000) && sharedBase();
+      }
+      allow create: if signedIn() && validRecipe();
+      allow update: if signedIn() && ownerEdit() && (validRecipe() || softDelete());
+    }
+    match /workouts/{id} {
+      allow read: if true;
+      function validWorkout() {
+        let d = request.resource.data;
+        return onlyKeys(['n', 'ex', 'uid', 'del', 'v', 't'])
+          && str(d.n, 40) && d.n.size() > 0 && d.ex is list && d.ex.size() <= 30 && sharedBase();
+      }
+      allow create: if signedIn() && validWorkout();
+      allow update: if signedIn() && ownerEdit() && (validWorkout() || softDelete());
+    }
+    // "confere com o rótulo": 1 voto por pessoa e alimento; o contador só sobe de 1 em 1, junto com o voto
+    match /votes/{vid} {
+      allow create: if signedIn() && vid == request.resource.data.fid + '_' + me()
+        && request.resource.data.uid == me() && str(request.resource.data.fid, 40)
+        && onlyKeys(['fid', 'uid', 't']) && stamped();
+    }
+    match /stats/{fid} {
+      allow read: if true;
+      allow create, update: if signedIn() && onlyKeys(['c', 't']) && stamped()
+        && request.resource.data.c == (resource == null ? 0 : resource.data.get('c', 0)) + 1
+        && !exists(/databases/$(database)/documents/votes/$(fid + '_' + me()))
+        && existsAfter(/databases/$(database)/documents/votes/$(fid + '_' + me()));
+    }
+    match /reports/{id} {
+      allow create: if signedIn() && request.resource.data.uid == me() && str(request.resource.data.fid, 40)
+        && str(request.resource.data.why, 200) && onlyKeys(['fid', 'why', 'uid', 't']) && stamped();
+    }
+
+    // ---------- Lembretes: token de notificação do aparelho (login anônimo do próprio aparelho) ----------
+    match /push/{uid} {
+      allow read, delete: if signedIn() && uid == me();
+      allow create, update: if signedIn() && uid == me() && onlyKeys(['tok', 'tz', 'r', 't'])
+        && str(request.resource.data.tok, 4096) && str(request.resource.data.tz, 64)
+        && request.resource.data.r is list && request.resource.data.r.size() <= 8 && stamped();
+    }
+    // pushlog: só a tarefa agendada (conta de serviço, que ignora estas regras)
+
+    // ---------- Conta Google: backup privado, perfil, amigos ----------
+    match /users/{uid}/data/{doc} {
+      allow read, write: if google() && uid == me();
+    }
+    match /users/{uid}/friends/{fid} {
+      allow read, delete: if google() && uid == me();
+      allow create, update: if google() && uid == me() && onlyKeys(['t']) && stamped();
+    }
+    // perfil mínimo: primeiro nome + código de amigo (busca pelo código)
+    match /profiles/{uid} {
+      allow get: if google();
+      allow list: if google() && request.query.limit <= 50;
+      allow delete: if google() && uid == me();
+      allow create, update: if google() && uid == me() && onlyKeys(['n', 'c', 't'])
+        && str(request.resource.data.n, 30) && request.resource.data.c.matches('^[A-Z0-9]{6}$') && stamped();
+    }
+    // resumo público: o dono e quem ele aceitou como amigo
+    match /pub/{uid} {
+      allow read: if google() && (uid == me() || exists(/databases/$(database)/documents/users/$(uid)/friends/$(me())));
+      allow delete: if google() && uid == me();
+      allow create, update: if google() && uid == me() && onlyKeys(['n', 'mk', 'mo', 'wk', 'dd', 'vol', 'ln', 'lk', 't'])
+        && str(request.resource.data.n, 30) && str(request.resource.data.ln, 40) && stamped();
+    }
+    // pedido de amizade: id = <para>_<de>
+    match /reqs/{rid} {
+      allow read: if google() && (resource.data.to == me() || resource.data.from == me());
+      allow create: if google() && request.resource.data.from == me() && rid == request.resource.data.to + '_' + me()
+        && request.resource.data.to != me() && str(request.resource.data.n, 30)
+        && onlyKeys(['from', 'to', 'n', 't']) && stamped();
+      allow delete: if google() && (resource.data.to == me() || resource.data.from == me());
+    }
+  }
+}
