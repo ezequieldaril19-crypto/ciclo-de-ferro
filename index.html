@@ -561,7 +561,7 @@ const DEFAULT_SETTINGS = () => ({
   custom:[], recipes:[], recent:[], shareNew:true, comDel:[],
   rest:90, autoRest:true, bar:20,
   voted:[], aiOk:false, aiWeek:{}, rem:null,
-  adaptive:true, tdeeHist:{}, fav:[], recentM:{}, showWater:true, waterGoal:null, showFast:false, fast:null, fastGoal:16, showMicro:true, shop:null,
+  adaptive:true, tdeeHist:{}, fav:[], recentM:{}, showWater:true, waterGoal:null, showFast:false, fast:null, fastGoal:16, showMicro:true, shop:null, gone:[],
   t:0
 });
 let S = DEFAULT_SETTINGS();
@@ -588,6 +588,7 @@ function mergeSettings(raw){
   if (s.cg && !(typeof s.cg === "object" && ["pct","g","gkg"].includes(s.cg.unit) && ["A","M","B"].every(t => s.cg[t] && typeof s.cg[t] === "object"))){ s.cg = null; s.goalMode = "auto"; }
   if (s.goalMode === "custom" && !s.cg) s.goalMode = "auto";
   if (s.shop && !(typeof s.shop === "object" && Array.isArray(s.shop.got) && s.shop.days > 0)) s.shop = null;
+  if (!Array.isArray(s.gone)) s.gone = [];
   return s;
 }
 function loadLocal(){
@@ -607,7 +608,10 @@ function getDay(k, create){
   if (!M[mk].days[k]) { if (!create) return null; M[mk].days[k] = {items:[]}; }
   return M[mk].days[k];
 }
-function touchDay(k){ const mk = monthOf(k); M[mk].t = Date.now(); markDirty("m-"+mk); }
+function touchDay(k){ const mk = monthOf(k), now = Date.now(); M[mk].t = now; if (M[mk].days[k]) M[mk].days[k].u = now; markDirty("m-"+mk); }
+// itens apagados de propósito (alimentos, receitas, refeições prontas, treinos), para a sincronização não trazer de volta
+function markGone(id){ if (id) S.gone = [String(id)].concat((S.gone || []).filter(x => x !== String(id))).slice(0, 500); }
+function unGone(id){ S.gone = (S.gone || []).filter(x => x !== String(id)); }
 function touchSettings(){ S.t = Date.now(); markDirty("settings"); }
 function eachDay(fn){ Object.keys(M).sort().forEach(mk => Object.keys(M[mk].days).sort().forEach(k => fn(k, M[mk].days[k]))); }
 
@@ -645,27 +649,66 @@ async function flush(){
   }catch(e){ setSync("", "salvo neste aparelho"); }
   finally{ Cloud.flushing = false; }
 }
+/* Sincronização sem perda: os dois lados são juntados dia a dia, nunca um mês inteiro por cima do outro.
+   Dia editado nos dois lados: vence o editado por último (u). Dia de versões antigas, sem u: os alimentos são somados.
+   Antes de mudar qualquer coisa vinda da nuvem, o app guarda uma cópia de como estava (Ajustes > Seus dados). */
+const SNAP_KEY = "cicloFerro.v1.antes";
+const stable = v => JSON.stringify(v, (k, x) => x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map(q => [q, x[q]])) : x);
+function mergeDay(a, b){
+  const au = a.u || 0, bu = b.u || 0;
+  if (au && bu && au !== bu) return structuredClone(au > bu ? a : b);
+  const [base, other] = bu > au ? [b, a] : [a, b];
+  const out = structuredClone(base), seen = new Set((base.items || []).map(i => i.id));
+  out.items = (base.items || []).map(i => structuredClone(i)).concat((other.items || []).filter(i => !seen.has(i.id)).map(i => structuredClone(i)));
+  Object.keys(other).forEach(key => { if (key !== "items" && key !== "u" && out[key] == null) out[key] = structuredClone(other[key]); });
+  if (base.wo && other.wo && !base.wo.done && other.wo.done) out.wo = structuredClone(other.wo);
+  return out;
+}
+function mergeMonth(a, b){
+  if (!a || !b) b = b || {t:0, days:{}}, a = a || {t:0, days:{}};
+  const da = a.days || {}, db = b.days || {}, days = {};
+  new Set(Object.keys(da).concat(Object.keys(db))).forEach(k => {
+    days[k] = da[k] && db[k] ? mergeDay(da[k], db[k]) : structuredClone(da[k] || db[k]);
+    if (!days[k].u) days[k].u = 1; // dia antigo já juntado: daqui em diante vence a edição mais recente
+  });
+  return {...structuredClone((b.t || 0) > (a.t || 0) ? b : a), t:Math.max(a.t || 0, b.t || 0), days};
+}
+function mergeSettingsSync(a, b){
+  const [base, other] = (b.t || 0) > (a.t || 0) ? [b, a] : [a, b];
+  const out = structuredClone(base), gone = new Set([].concat(a.gone || [], b.gone || []).map(String));
+  const lists = [["custom","id"],["recipes","id"],["saved","id"],["myWo","id"],["customEx","n"]];
+  lists.forEach(([k, key]) => {
+    const have = new Set((out[k] || []).map(x => x && String(x[key])));
+    out[k] = (out[k] || []).concat((other[k] || []).filter(x => x && !have.has(String(x[key]))).map(x => structuredClone(x)));
+    if (key === "id") out[k] = out[k].filter(x => !gone.has(String(x.id)));
+  });
+  ["fav","voted","comDel"].forEach(k => { out[k] = [...new Set([].concat(out[k] || [], other[k] || []))]; });
+  ["tdeeHist","units","lastUnit","aiWeek"].forEach(k => { out[k] = {...structuredClone(other[k] || {}), ...(out[k] || {})}; });
+  out.gone = [...gone].slice(0, 500);
+  out.t = Math.max(a.t || 0, b.t || 0);
+  return out;
+}
+function snapshotLocal(){ try{ const raw = localStorage.getItem(LS_KEY); if (raw){ localStorage.setItem(SNAP_KEY, raw); localStorage.setItem(SNAP_KEY + ".at", String(Date.now())); } }catch(e){} }
 async function pull(){
   if (!Cloud.ready) return;
   try{
     const snap = await Cloud.col.get();
-    let changed = false;
-    const remoteIds = new Set();
-    snap.docs.forEach(d => {
-      if (!d.exists) return;
-      const body = d.data(); remoteIds.add(d.id);
-      if (d.id === "settings"){
-        if ((body.t||0) > (S.t||0)) { S = mergeSettings(structuredClone(body)); changed = true; }
-        else if ((S.t||0) > (body.t||0)) Cloud.dirty.add("settings");
-      } else if (d.id.startsWith("m-")){
-        const mk = d.id.slice(2);
-        if (!M[mk] || (body.t||0) > (M[mk].t||0)) { M[mk] = structuredClone(body); changed = true; }
-        else if ((M[mk].t||0) > (body.t||0)) Cloud.dirty.add(d.id);
-      }
+    const remote = {};
+    snap.docs.forEach(d => { if (d.exists) remote[d.id] = d.data(); });
+    let nS = S;
+    const nM = {...M};
+    if (remote.settings){
+      nS = mergeSettings(mergeSettingsSync(S, remote.settings));
+      if (stable(nS) !== stable(mergeSettings(structuredClone(remote.settings)))) Cloud.dirty.add("settings");
+    } else if (S.t) Cloud.dirty.add("settings");
+    Object.keys(remote).filter(id => id.startsWith("m-")).forEach(id => {
+      const mk = id.slice(2), merged = mergeMonth(M[mk], remote[id]);
+      nM[mk] = merged;
+      if (stable(merged) !== stable(remote[id])) Cloud.dirty.add(id);
     });
-    if (!remoteIds.has("settings") && S.t) Cloud.dirty.add("settings");
-    Object.keys(M).forEach(mk => { if (!remoteIds.has("m-"+mk) && M[mk].t) Cloud.dirty.add("m-"+mk); });
-    if (changed){ saveLocal(); render(); }
+    Object.keys(M).forEach(mk => { if (!remote["m-" + mk] && M[mk].t) Cloud.dirty.add("m-" + mk); });
+    const changed = stable(nS) !== stable(S) || Object.keys(nM).some(mk => stable(nM[mk]) !== stable(M[mk]));
+    if (changed){ snapshotLocal(); S = nS; M = nM; saveLocal(); render(); }
     if (Cloud.dirty.size) flush(); else setSync("on","sincronizado");
   }catch(e){ setSync("", "salvo neste aparelho"); }
 }
@@ -2674,7 +2717,7 @@ function openFoodSheet({meal, edit, editFood, newFood, start, pick, back, exclud
       if (fbv != null && fbv >= 0) item.fb = r1(fbv*x); else delete item.fb;
       if (nav != null && nav >= 0) item.na = Math.round(nav*x); else delete item.na;
       if (b) item.b = b; else delete item.b;
-      if (bc){ S.custom = S.custom.filter(cu => cu.bc !== bc); item.bc = bc; }
+      if (bc){ S.custom.filter(cu => cu.bc === bc).forEach(cu => markGone(cu.id)); S.custom = S.custom.filter(cu => cu.bc !== bc); item.bc = bc; }
       delete item.por;
       if (servingG) item.por = r1(servingG);
       else if (Math.abs(por - 100) > 0.01) item.por = r1(por);
@@ -2768,10 +2811,10 @@ function openRecipeEditor(draft, opts = {}){
   $("#rcSend")?.addEventListener("click", async () => { read(); shareLink(await packLink("rc", recipePack(draft)), draft.n, `Receita "${draft.n}" no Muscle Land:`); });
   $("#rcDel")?.addEventListener("click", () => {
     const i = S.recipes.findIndex(x => x.id === draft.id); if (i < 0){ closeSheet(); return; }
-    const [gone] = S.recipes.splice(i, 1), key = "r" + gone.id, units = S.units[key];
+    const [gone] = S.recipes.splice(i, 1), key = "r" + gone.id, units = S.units[key]; markGone(gone.id);
     delete S.units[key]; S.recent = S.recent.filter(x => x !== key);
     touchSettings(); closeSheet(); render();
-    toast(`${gone.n} apagada`, {label:"Desfazer", fn: () => { S.recipes.splice(i, 0, gone); if (units) S.units[key] = units; touchSettings(); render(); }});
+    toast(`${gone.n} apagada`, {label:"Desfazer", fn: () => { S.recipes.splice(i, 0, gone); unGone(gone.id); if (units) S.units[key] = units; touchSettings(); render(); }});
   });
   sheetBack = () => {
     read(); closeSheet();
@@ -3286,7 +3329,7 @@ function renderTreino(){
   $("#woMore")?.addEventListener("click", () => { ui.woMore = true; render(); });
   view.querySelectorAll("[data-tplsend]").forEach(b => b.onclick = async () => { const t = S.myWo.find(x => x.id === b.dataset.tplsend); if (t) shareLink(await packLink("wo", {name:t.name, ex:t.ex}), t.name, `Treino "${t.name}" no Muscle Land:`); });
   view.querySelectorAll("[data-tplrm]").forEach(b => b.onclick = () => {
-    S.myWo = S.myWo.filter(x => x.id !== b.dataset.tplrm); touchSettings(); render(); toast("Treino apagado");
+    markGone(b.dataset.tplrm); S.myWo = S.myWo.filter(x => x.id !== b.dataset.tplrm); touchSettings(); render(); toast("Treino apagado");
   });
   if (wo){
     $("#addEx")?.addEventListener("click", () => openExercisePicker(k, wo));
@@ -4084,7 +4127,7 @@ function renderAjustes(){
   html += remindersHTML();
   html += accountHTML();
   html += `<h2 class="sec" id="dataSec"><span class="t">Seus dados</span></h2><section class="panel stack">
-    <p class="note" style="margin:0">${Cloud.ready ? "Seus registros ficam salvos na sua conta Claude e aparecem em qualquer aparelho em que você abrir o app logado." : "Nesta tela os registros ficam só neste aparelho. Exporte um backup de vez em quando."}</p>
+    <p class="note" style="margin:0">${Cloud.ready ? (Account && Account.user() ? "Seus registros ficam salvos na sua conta Google e aparecem em qualquer aparelho em que você entrar com ela." : "Seus registros ficam salvos na sua conta Claude e aparecem em qualquer aparelho em que você abrir o app logado.") : "Nesta tela os registros ficam só neste aparelho. Exporte um backup de vez em quando."}</p>
     <button class="btn ghost wide" id="exp">Exportar backup (.json)</button>
     <div class="label" style="margin-top:4px">Planilhas (abrem no Excel e no Google Planilhas)</div>
     <div class="grid2"><button class="btn ghost" data-csv="diet">Refeições</button><button class="btn ghost" data-csv="wo">Treinos</button><button class="btn ghost" data-csv="body" style="grid-column:1/-1">Peso, água e medidas</button></div>
@@ -4093,6 +4136,7 @@ function renderAjustes(){
     <p class="note" style="margin:0">PDF: na tela de impressão, escolha <b>Salvar como PDF</b>. Página: um arquivo que abre em qualquer navegador.</p>
     <label class="btn ghost wide" style="text-align:center;cursor:pointer">Importar backup<input id="imp" type="file" accept=".json,application/json" hidden></label>
     <div id="expOut" hidden><p class="note">Copie o texto abaixo e guarde num lugar seguro:</p><textarea id="expTxt" rows="4" style="font-size:12px" aria-label="Backup em texto"></textarea></div>
+    ${(() => { let at = 0; try{ at = +localStorage.getItem(SNAP_KEY + ".at") || 0; }catch(e){} return at ? `<button class="btn ghost wide" id="snapBack">Voltar como estava antes da última sincronização</button><div id="snapConfirm" hidden><p class="note" style="margin:0 0 8px">O app guardou uma cópia dos seus dados em ${new Date(at).toLocaleString("pt-BR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"})}, antes de juntar com a nuvem. Voltar troca os dados de agora por essa cópia.</p><div class="row"><button class="btn grow" id="snapYes">Voltar para a cópia</button><button class="btn ghost" id="snapNo">Cancelar</button></div></div>` : ""; })()}
     <button class="btn ghost wide" id="wipe" style="color:var(--red-hot)">Apagar todos os dados</button>
     <div id="wipeConfirm" hidden><p class="note warn" style="margin:0 0 8px">Isso apaga refeições, pesos, medidas, treinos e ajustes. Não dá para desfazer.</p><div class="row"><button class="btn grow" id="wipeYes">Apagar tudo</button><button class="btn ghost" id="wipeNo">Cancelar</button></div></div>
     <p class="note" style="margin:0">Alimentos: TACO 4ª edição (NEPA/Unicamp) e Tabelas de Composição Nutricional do IBGE (POF 2008-2009), ao todo 1.972 itens. Suplementos com valores médios de rótulos. Industrializados entram pelo código de barras ou pelo cadastro.</p>
@@ -4127,7 +4171,7 @@ function renderAjustes(){
     if (S.meals.length <= 1){ toast("Mantenha pelo menos uma refeição"); return; }
     const m = S.meals.splice(+b.dataset.rm, 1)[0]; touchSettings(); render(); toast(`${m.n} removida`);
   });
-  view.querySelectorAll("[data-svrm]").forEach(b => b.onclick = () => { S.saved = S.saved.filter(s => s.id !== b.dataset.svrm); touchSettings(); render(); toast("Refeição pronta apagada"); });
+  view.querySelectorAll("[data-svrm]").forEach(b => b.onclick = () => { markGone(b.dataset.svrm); S.saved = S.saved.filter(s => s.id !== b.dataset.svrm); touchSettings(); render(); toast("Refeição pronta apagada"); });
   $("#newMeal2").onclick = openNewMeal;
   $("#cfNew").onclick = () => openFoodSheet({meal: S.meals[0] && S.meals[0].id, newFood: true});
   $("#comAll")?.addEventListener("click", async () => {
@@ -4147,18 +4191,18 @@ function renderAjustes(){
   view.querySelectorAll("[data-rce]").forEach(b => b.onclick = () => editRecipe(b.dataset.rce));
   view.querySelectorAll("[data-rcrm]").forEach(b => b.onclick = () => {
     const i = S.recipes.findIndex(r => r.id === b.dataset.rcrm); if (i < 0) return;
-    const [gone] = S.recipes.splice(i, 1), key = "r" + gone.id, units = S.units[key];
+    const [gone] = S.recipes.splice(i, 1), key = "r" + gone.id, units = S.units[key]; markGone(gone.id);
     delete S.units[key]; S.recent = S.recent.filter(x => x !== key); touchSettings(); render();
-    toast(`${gone.n} apagada`, {label:"Desfazer", fn: () => { S.recipes.splice(i, 0, gone); if (units) S.units[key] = units; touchSettings(); render(); }});
+    toast(`${gone.n} apagada`, {label:"Desfazer", fn: () => { S.recipes.splice(i, 0, gone); unGone(gone.id); if (units) S.units[key] = units; touchSettings(); render(); }});
   });
   view.querySelectorAll("[data-cfe]").forEach(b => b.onclick = () => openFoodSheet({meal: S.meals[0] && S.meals[0].id, editFood: b.dataset.cfe}));
   view.querySelectorAll("[data-cfrm]").forEach(b => b.onclick = () => {
     const i = S.custom.findIndex(c => c.id === b.dataset.cfrm); if (i < 0) return;
-    const [gone] = S.custom.splice(i, 1), key = "c" + gone.id, units = S.units[key], wasShared = !!(gone.sid || gone.share);
+    const [gone] = S.custom.splice(i, 1), key = "c" + gone.id, units = S.units[key], wasShared = !!(gone.sid || gone.share); markGone(gone.id);
     if (wasShared){ const sid = gone.sid; unshareCustom(gone); gone.sid = sid; }
     delete S.units[key]; S.recent = S.recent.filter(x => x !== key); touchSettings(); render();
     toast(`${gone.n} apagado`, {label:"Desfazer", fn: () => {
-      S.custom.splice(i, 0, gone); if (units) S.units[key] = units;
+      S.custom.splice(i, 0, gone); unGone(gone.id); if (units) S.units[key] = units;
       if (wasShared){ S.comDel = (S.comDel || []).filter(x => x !== gone.sid); shareCustom(gone, true); }
       touchSettings(); render(); }});
   });
@@ -4194,13 +4238,26 @@ function renderAjustes(){
         const d = JSON.parse(rd.result);
         if (!["muscle-land", "ciclo-de-ferro"].includes(d.app) || !d.S || !d.M) throw 0;
         S = mergeSettings(d.S); M = d.M;
-        const now = Date.now(); S.t = now; Object.values(M).forEach(m => m.t = now);
+        const now = Date.now(); S.t = now; Object.values(M).forEach(m => { m.t = now; Object.values(m.days || {}).forEach(x => x.u = now); });
         markDirty("settings"); Object.keys(M).forEach(mk => markDirty("m-"+mk));
         toast("Backup importado"); render();
       }catch(_){ toast("Esse arquivo não é um backup do Muscle Land"); }
     };
     rd.readAsText(file);
   };
+  $("#snapBack")?.addEventListener("click", () => { $("#snapConfirm").hidden = false; });
+  $("#snapNo")?.addEventListener("click", () => { $("#snapConfirm").hidden = true; });
+  $("#snapYes")?.addEventListener("click", () => {
+    try{
+      const d = JSON.parse(localStorage.getItem(SNAP_KEY));
+      if (!d || !d.S || !d.M) throw 0;
+      S = mergeSettings(d.S); M = d.M;
+      const now = Date.now(); S.t = now;
+      Object.values(M).forEach(m => { m.t = now; Object.values(m.days || {}).forEach(x => x.u = now); });
+      markDirty("settings"); Object.keys(M).forEach(mk => markDirty("m-" + mk));
+      toast("Dados de volta como estavam"); render();
+    }catch(e){ toast("Não achei a cópia"); }
+  });
   $("#wipe").onclick = () => { $("#wipeConfirm").hidden = false; };
   $("#wipeNo").onclick = () => { $("#wipeConfirm").hidden = true; };
   $("#wipeYes").onclick = async () => {

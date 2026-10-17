@@ -171,6 +171,29 @@ ok(await page.evaluate(() => !!Reminders && /Lembretes/.test(document.querySelec
 const rep = await page.evaluate(() => reportHTML(30));
 ok(/Relatório/.test(rep) && /Peso/.test(rep) && /Treinos/.test(rep) && /<table/.test(rep), "relatório em PDF monta as seções");
 
+console.log("Sincronização com a nuvem (dois aparelhos na mesma conta)");
+const sync = await page.evaluate(async () => {
+  const cloud = {}, keep = {S:structuredClone(S), M:structuredClone(M)};
+  const col = {doc: id => ({set: async d => { cloud[id] = structuredClone(d); }, delete: async () => { delete cloud[id]; }}),
+    get: async () => ({docs: Object.entries(cloud).map(([id, b]) => ({id, exists:true, data: () => structuredClone(b)}))})};
+  const wait = () => new Promise(r => setTimeout(r, 50));
+  const days = () => Object.values(M).reduce((a, m) => a + Object.keys(m.days).length, 0);
+  Cloud.col = col; Cloud.ready = true;
+  const before = days();
+  await pull(); await flush();                                   // aparelho A sobe o histórico
+  const A = {S:structuredClone(S), M:structuredClone(M)};
+  S = mergeSettings({setup:true, t:Date.now()}); M = {};         // aparelho B: novo, só 1 alimento hoje
+  const k = todayKey(); getDay(k, true).items.push({id:"novo", key:"t0", n:"Ovo", g:50, k:73, p:6, c:0.5, f:5, m:"cafe"}); touchDay(k);
+  await pull(); await flush(); await wait();
+  const bGot = days();
+  S = A.S; M = A.M; await pull(); await flush(); await wait();   // A volta: não pode perder nada
+  const aAfter = days(), hasNew = !!(getDay(k) && getDay(k).items.some(i => i.id === "novo"));
+  Cloud.ready = false; Cloud.col = null; S = keep.S; M = keep.M; saveLocal();
+  return {before, bGot, aAfter, hasNew};
+});
+ok(sync.bGot >= sync.before, "aparelho novo recebe todo o histórico da nuvem", sync);
+ok(sync.aAfter >= sync.before && sync.hasNew, "um aparelho com 1 dia não apaga o mês do outro", sync);
+
 console.log("Tela pequena");
 await page.setViewportSize({width:320, height:640});
 for (const tab of ["hoje", "treino", "corpo", "evolucao", "ajustes"]){
