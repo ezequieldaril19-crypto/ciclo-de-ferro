@@ -859,8 +859,11 @@ function dayTotals(k){
   return t;
 }
 /* ================= Atividades: caminhada, corrida e outras =================
-   Gasto = MET × peso (kg) × horas. MET médios do Compêndio de Atividades Físicas (Ainsworth et al., 2011; Herrmann et al., 2024).
-   Com a distância, caminhada e corrida usam a velocidade de verdade. */
+   Conta só o gasto da atividade, sem o que o corpo já gastaria parado (como as "calorias ativas" dos relógios),
+   porque o gasto em repouso já está na meta do dia.
+   - Caminhada e corrida com distância: equações do ACSM. Custo por km ≈ 0,5 kcal/kg andando e 1 kcal/kg correndo,
+     quase sem depender da velocidade; subida soma a parte da inclinação (5%). O tempo não muda a conta.
+   - Só com o tempo: (MET − 1) × peso × horas, com o MET médio do Compêndio de Atividades Físicas. */
 const ACTS = [
   {id:"caminhada", n:"Caminhada", ic:"🚶", km:true, lv:[["leve","Passeio",3.0],["mod","Moderada",3.5],["rap","Rápida",4.3],["sub","Subida",6.0]]},
   {id:"corrida", n:"Corrida", ic:"🏃", km:true, lv:[["trote","Trote",7.0],["mod","Moderada",9.8],["forte","Forte",11.5]]},
@@ -874,22 +877,19 @@ const ACTS = [
   {id:"danca", n:"Dança", ic:"💃", lv:[["mod","Moderada",5.0]]}
 ];
 const actDef = id => ACTS.find(a => a.id === id) || ACTS[0];
-// MET pela velocidade (km/h), interpolando os pontos do Compêndio
-const SPEED_MET = {caminhada:[[3.2,2.8],[4.0,3.0],[4.8,3.5],[5.6,4.3],[6.4,5.0],[7.2,7.0]], corrida:[[6.4,6.0],[8.0,8.3],[9.7,9.8],[11.3,11.0],[12.9,11.8],[14.5,12.8],[16.1,14.5]]};
-function metBySpeed(id, kmh){
-  const t = SPEED_MET[id]; if (!t || !(kmh > 0)) return null;
-  if (kmh <= t[0][0]) return t[0][1];
-  for (let i = 1; i < t.length; i++) if (kmh <= t[i][0]){ const [x0, y0] = t[i-1], [x1, y1] = t[i]; return y0 + (y1 - y0) * (kmh - x0) / (x1 - x0); }
-  return t[t.length-1][1];
+// ACSM: VO2 líquido (mL/kg/m) = horizontal + vertical × inclinação; 1 L de O2 ≈ 5 kcal → kcal por kg por km = valor × 5
+const ACSM = {caminhada:{h:0.1, v:1.8}, corrida:{h:0.2, v:0.9}}, UP_GRADE = 0.05;
+const perKm = a => { const c = ACSM[a.a]; return c && a.km > 0 ? (c.h + c.v * (a.up ? UP_GRADE : 0)) * 5 : 0; };
+function actMet(a){ const def = actDef(a.a); return (def.lv.find(l => l[0] === a.lv) || def.lv[Math.min(1, def.lv.length-1)])[2]; }
+function actKcal(a, kg){
+  const pk = perKm(a);
+  if (pk) return Math.round(pk * kg * a.km);
+  return Math.round(Math.max(0, actMet(a) - 1) * kg * (a.min || 0) / 60);
 }
-function actMet(a){
-  const def = actDef(a.a), v = a.km && a.min ? a.km / (a.min/60) : 0;
-  return (def.km && metBySpeed(def.id, v)) || ((def.lv.find(l => l[0] === a.lv) || def.lv[Math.min(1, def.lv.length-1)])[2]);
-}
-const actKcal = (a, kg) => Math.round(actMet(a) * kg * (a.min || 0) / 60);
 const dayActs = k => { const d = getDay(k, false); return (d && d.act) || []; };
 const dayExercise = k => dayActs(k).reduce((x, a) => x + (a.kcal || 0), 0);
-function actLabel(a){ const def = actDef(a.a), lv = def.lv.find(l => l[0] === a.lv); return `${def.n}${def.lv.length > 1 && lv && !a.km ? " " + lv[1].toLowerCase() : ""}`; }
+function actLabel(a){ const def = actDef(a.a), lv = def.lv.find(l => l[0] === a.lv); return `${def.n}${a.km ? (a.up ? " com subida" : "") : def.lv.length > 1 && lv ? " " + lv[1].toLowerCase() : ""}`; }
+const actAmount = a => [a.km ? `${fmt1(a.km)} km` : "", a.min ? `${a.min} min` : ""].filter(Boolean).join(" · ");
 // meta do dia; com "somar exercício" ligado, as calorias da atividade entram como carboidrato
 function dayTarget(k){
   const base = cyclePlan(latestWeight(k), k)[dayType(k)], ex = S.exAdd === false ? 0 : dayExercise(k);
@@ -3333,45 +3333,56 @@ function bindCalendar(){
 function openActivity(k, editId){
   const d0 = getDay(k, false), old = editId && d0 && (d0.act || []).find(a => a.id === editId);
   const kg = latestWeight(k), last = S.lastAct || {};
-  const A = old ? {...old} : {a:last.a || "caminhada", lv:last.lv || "mod", min:last.min || 30, km:null};
+  const A = old ? {...old} : {a:last.a || "caminhada", lv:last.lv || "mod", min:actDef(last.a || "caminhada").km ? null : last.min || 30, km:null, up:false};
   if (!actDef(A.a).lv.some(l => l[0] === A.lv)) A.lv = actDef(A.a).lv[Math.min(1, actDef(A.a).lv.length - 1)][0];
   openSheet(`${sheetHead(old ? "Editar atividade" : "Adicionar atividade")}
     <div class="act-grid" role="radiogroup" aria-label="Atividade">${ACTS.map(x => `<button data-act="${x.id}" role="radio" aria-checked="${x.id === A.a}"><i>${x.ic}</i>${esc(x.n)}</button>`).join("")}</div>
-    <div id="actLv"></div>
-    <div class="grid2">
-      <div class="field"><label for="actMin">Tempo (min)</label><input id="actMin" type="text" inputmode="numeric" value="${A.min || ""}"></div>
-      <div class="field" id="actKmF"><label for="actKm">Distância (km)</label><input id="actKm" type="text" inputmode="decimal" placeholder="opcional" value="${A.km ? fmt1(A.km) : ""}"></div>
+    <div id="actKmF" class="stack" style="gap:8px">
+      <div class="field"><label for="actKm">Distância (km)</label><input id="actKm" type="text" inputmode="decimal" placeholder="Ex.: 5" value="${A.km ? fmt1(A.km) : ""}"></div>
+      <div class="chips">${[1, 2, 3, 5, 10].map(m => `<button class="chip" data-akm="${m}">${m} km</button>`).join("")}<button class="chip" id="actUp" aria-pressed="${!!A.up}">${A.up ? "✓ " : ""}Com subida</button></div>
     </div>
+    <div id="actLv"></div>
+    <div class="field"><label for="actMin" id="actMinL">Tempo (min)</label><input id="actMin" type="text" inputmode="numeric" value="${A.min || ""}"></div>
     <div class="chips">${[15, 30, 45, 60, 90].map(m => `<button class="chip" data-amin="${m}">${m} min</button>`).join("")}</div>
     <div class="act-res"><b class="num" id="actK">0</b><span>kcal</span><small id="actHow"></small></div>
     <button class="btn wide" id="actSave">${old ? "Salvar" : "Adicionar atividade"}</button>
     ${old ? `<button class="btn ghost wide" id="actDel" style="color:var(--red-hot)">Apagar atividade</button>` : ""}
-    <p class="note" style="margin:0">Estimativa pelo Compêndio de Atividades Físicas: intensidade (MET) × seu peso × tempo. Relógios e esteiras podem mostrar números diferentes.</p>`);
+    <p class="note" id="actNote" style="margin:0"></p>`);
   const draw = () => {
-    const def = actDef(A.a), v = A.km && A.min ? A.km / (A.min/60) : 0, bySpeed = def.km && v > 0;
-    $("#actLv").innerHTML = def.lv.length > 1 ? `<div class="seg modes" role="group" aria-label="Intensidade">${def.lv.map(l => `<button data-alv="${l[0]}" aria-pressed="${l[0] === A.lv && !bySpeed}" ${bySpeed ? "disabled" : ""}>${esc(l[1])}</button>`).join("")}</div>` : "";
+    const def = actDef(A.a), pk = def.km ? perKm(A) : 0;
     $("#actKmF").hidden = !def.km;
+    $("#actUp").setAttribute("aria-pressed", String(!!A.up)); $("#actUp").textContent = (A.up ? "✓ " : "") + "Com subida";
+    $("#actLv").innerHTML = def.lv.length > 1 && !pk ? `<div class="label" style="margin-bottom:6px">${def.km ? "Ritmo (quando não souber a distância)" : "Intensidade"}</div><div class="seg modes" role="group" aria-label="Intensidade">${def.lv.map(l => `<button data-alv="${l[0]}" aria-pressed="${l[0] === A.lv}">${esc(l[1])}</button>`).join("")}</div>` : "";
     $("#actLv").querySelectorAll("[data-alv]").forEach(b => b.onclick = () => { A.lv = b.dataset.alv; draw(); });
-    const kc = actKcal(A, kg), met = actMet(A);
+    $("#actMinL").textContent = pk ? "Tempo (min, opcional)" : "Tempo (min)";
+    const kc = actKcal(A, kg);
     $("#actK").textContent = kc.toLocaleString("pt-BR");
-    $("#actHow").textContent = `${bySpeed ? `ritmo de ${fmt1(v)} km/h · ` : ""}MET ${fmt1(met)} · com ${fmt1(kg)} kg, seu último peso`;
-    $("#actSave").disabled = !(A.min > 0);
+    $("#actHow").textContent = pk
+      ? `${fmt1(pk)} kcal por kg a cada km × ${fmt1(kg)} kg × ${fmt1(A.km)} km${A.min ? ((sec) => ` · ritmo de ${Math.floor(sec / 60)}:${pad(sec % 60)} por km`)(Math.round(A.min * 60 / A.km)) : ""}`
+      : A.min ? `MET ${fmt1(actMet(A))} menos o repouso × ${fmt1(kg)} kg × ${A.min} min` : def.km ? "Coloque a distância ou o tempo" : "Coloque o tempo";
+    $("#actNote").innerHTML = def.km
+      ? `Com a distância, a conta segue as equações do ACSM: andar gasta cerca de 0,5 kcal por kg a cada km e correr cerca de 1 kcal por kg, quase sem mudar com a velocidade. O tempo não muda essa conta. Conta só o gasto da atividade, sem o que o corpo gastaria parado, como as "calorias ativas" dos relógios.`
+      : `Estimativa pelo Compêndio de Atividades Físicas: intensidade (MET) × seu peso (${fmt1(kg)} kg) × tempo, sem o que o corpo gastaria parado, como as "calorias ativas" dos relógios.`;
+    $("#actSave").disabled = !(A.min > 0 || pk > 0);
   };
   document.querySelectorAll("[data-act]").forEach(b => b.onclick = () => {
     A.a = b.dataset.act; const def = actDef(A.a);
     if (!def.lv.some(l => l[0] === A.lv)) A.lv = def.lv[Math.min(1, def.lv.length - 1)][0];
-    if (!def.km) A.km = null;
+    if (!def.km){ A.km = null; A.up = false; $("#actKm").value = ""; }
     document.querySelectorAll("[data-act]").forEach(x => x.setAttribute("aria-checked", String(x === b))); draw();
   });
-  $("#actMin").oninput = e => { const v = num(e.target.value); A.min = v > 0 && v <= 600 ? Math.round(v) : 0; draw(); };
+  $("#actMin").oninput = e => { const v = num(e.target.value); A.min = v > 0 && v <= 600 ? Math.round(v) : null; draw(); };
   $("#actKm").oninput = e => { const v = num(e.target.value); A.km = v > 0 && v <= 200 ? v : null; draw(); };
+  $("#actUp").onclick = () => { A.up = !A.up; draw(); };
   document.querySelectorAll("[data-amin]").forEach(b => b.onclick = () => { A.min = +b.dataset.amin; $("#actMin").value = A.min; draw(); });
+  document.querySelectorAll("[data-akm]").forEach(b => b.onclick = () => { A.km = +b.dataset.akm; $("#actKm").value = fmt1(A.km); draw(); });
   $("#actSave").onclick = () => {
     const dd = getDay(k, true); dd.act = dd.act || [];
-    const item = {id:old ? old.id : uid(), a:A.a, lv:A.lv, min:A.min, kcal:actKcal(A, kg), kg:r1(kg)};
-    if (A.km) item.km = r1(A.km);
+    const item = {id:old ? old.id : uid(), a:A.a, lv:A.lv, kcal:actKcal(A, kg), kg:r1(kg)};
+    if (A.min) item.min = A.min;
+    if (A.km && actDef(A.a).km){ item.km = r1(A.km); if (A.up) item.up = true; }
     if (old) dd.act = dd.act.map(x => x.id === old.id ? item : x); else dd.act.push(item);
-    S.lastAct = {a:A.a, lv:A.lv, min:A.min}; touchSettings(); touchDay(k); closeSheet(); render();
+    S.lastAct = {a:A.a, lv:A.lv, min:A.min || null}; touchSettings(); touchDay(k); closeSheet(); render();
     toast(`${actLabel(item)}: ${item.kcal.toLocaleString("pt-BR")} kcal`);
   };
   $("#actDel")?.addEventListener("click", () => {
@@ -3383,7 +3394,7 @@ function openActivity(k, editId){
 function actsHTML(k){
   const list = dayActs(k), tot = dayExercise(k);
   return `<h2 class="sec b" id="actSec"><span class="t">Cardio e atividades</span>${tot ? `<small>${tot.toLocaleString("pt-BR")} kcal</small>` : ""}</h2><section class="panel">
-    ${list.length ? `<ul class="list-edit acts">${list.map(a => `<li><button class="act-row" data-aed="${a.id}"><span>${actDef(a.a).ic} ${esc(actLabel(a))} <small class="muted num">· ${a.min} min${a.km ? ` · ${fmt1(a.km)} km` : ""}</small></span><b class="num">${a.kcal.toLocaleString("pt-BR")} kcal</b></button></li>`).join("")}</ul>` : `<p class="note" style="margin:0">Caminhada, corrida, bicicleta e outras. O app calcula o gasto pelo tempo e pelo seu peso${S.exAdd === false ? "." : " e soma à meta de calorias do dia, na aba Dieta."}</p>`}
+    ${list.length ? `<ul class="list-edit acts">${list.map(a => `<li><button class="act-row" data-aed="${a.id}"><span>${actDef(a.a).ic} ${esc(actLabel(a))} <small class="muted num">· ${actAmount(a)}</small></span><b class="num">${a.kcal.toLocaleString("pt-BR")} kcal</b></button></li>`).join("")}</ul>` : `<p class="note" style="margin:0">Caminhada, corrida, bicicleta e outras. O app calcula o gasto pelo seu peso e pela distância ou pelo tempo${S.exAdd === false ? "." : " e soma à meta de calorias do dia, na aba Dieta."}</p>`}
     <button class="newmeal" id="actNew" style="margin-top:10px">+ Caminhada, corrida e outras</button></section>`;
 }
 function bindActs(k){
@@ -3444,7 +3455,7 @@ function renderTreino(){
   hist.sort((a, b) => b.k.localeCompare(a.k));
   const histShown = hist.slice(0, 10);
   html += secH("Histórico", "últimos treinos e atividades", true) + `<section class="panel">${histShown.length ? `<ul class="hist">${histShown.map(x => {
-      if (x.act) return `<li><button data-jump="${x.k}"><span>${shortDate(x.k)} · ${actDef(x.act.a).ic} ${esc(actLabel(x.act))} ${x.act.min} min</span><span class="num muted">${x.act.kcal.toLocaleString("pt-BR")} kcal</span></button></li>`;
+      if (x.act) return `<li><button data-jump="${x.k}"><span>${shortDate(x.k)} · ${actDef(x.act.a).ic} ${esc(actLabel(x.act))} · ${actAmount(x.act)}</span><span class="num muted">${x.act.kcal.toLocaleString("pt-BR")} kcal</span></button></li>`;
       const vol = x.wo.ex.reduce((a,e) => a + workSets(e).reduce((b,s) => b + (num(s.kg)||0)*(num(s.r)||0), 0), 0);
       return `<li><button data-jump="${x.k}"><span>${shortDate(x.k)} · ${esc(x.wo.name)}</span><span class="num muted">${r0(vol).toLocaleString("pt-BR")} kg</span></button></li>`; }).join("")}</ul><p class="note" style="margin:8px 0 0">À direita: volume do treino (carga × repetições) ou o gasto da atividade. Toque para abrir o dia.</p>`
     : `<p class="note" style="margin:0">Seus treinos concluídos e atividades aparecem aqui.</p>`}</section>`;
@@ -4303,7 +4314,7 @@ function renderAjustes(){
   html += G("setAbout", "Sobre o app", "fontes e privacidade", `<div class="stack">
     <p class="note" style="margin:0">Alimentos: TACO 4ª edição (NEPA/Unicamp) e Tabelas de Composição Nutricional do IBGE (POF 2008-2009), ao todo 1.972 itens. Suplementos com valores médios de rótulos. Industrializados entram pelo código de barras ou pelo cadastro.</p>
     <p class="note" style="margin:0"><a href="https://ezequieldaril19-crypto.github.io/ciclo-de-ferro/privacidade.html" target="_blank" rel="noopener" style="color:var(--blue-hot)">Política de privacidade</a></p>
-    <p class="note" style="margin:0">Gasto das atividades: Compêndio de Atividades Físicas (Ainsworth et al., 2011; Herrmann et al., 2024).</p>
+    <p class="note" style="margin:0">Gasto das atividades: equações metabólicas do ACSM para caminhada e corrida com distância; Compêndio de Atividades Físicas (Ainsworth et al., 2011; Herrmann et al., 2024) para as demais.</p>
   </div>`) + `</div>`;
   view.innerHTML = html;
   view.querySelectorAll("details.set").forEach(dt => dt.addEventListener("toggle", () => { if (dt.open) ui.setOpen.add(dt.id); else ui.setOpen.delete(dt.id); }));

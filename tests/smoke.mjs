@@ -197,17 +197,18 @@ ok(sync.aAfter >= sync.before && sync.hasNew, "um aparelho com 1 dia não apaga 
 console.log("Atividades e contador de calorias");
 const act = await page.evaluate(() => {
   const k = todayKey(), kg = latestWeight(k), base = dayTarget(k).kcal, d = getDay(k, true);
-  const run = {a:"corrida", lv:"mod", min:30, km:5}, walk = {a:"caminhada", lv:"mod", min:60};
+  const run = {a:"corrida", lv:"mod", km:5}, runT = {a:"corrida", lv:"mod", km:5, min:20}, walk = {a:"caminhada", lv:"mod", min:60}, walkKm = {a:"caminhada", km:4};
   d.act = [{id:"t1", ...run, kcal:actKcal(run, kg)}, {id:"t2", ...walk, kcal:actKcal(walk, kg)}];
-  const out = {kg, base, runMet:actMet(run), walkMet:actMet(walk), run:actKcal(run, kg), walk:actKcal(walk, kg), withEx:dayTarget(k).kcal};
+  const out = {kg, base, run:actKcal(run, kg), runT:actKcal(runT, kg), walk:actKcal(walk, kg), walkKm:actKcal(walkKm, kg), withEx:dayTarget(k).kcal};
   S.exAdd = false; out.off = dayTarget(k).kcal; S.exAdd = true;
   ui.tab = "hoje"; ui.day = k; render(); out.eq = (document.querySelector(".kcal-eq") || {}).textContent || "";
   delete d.act; render();
   return out;
 });
-ok(Math.abs(act.runMet - 10) < 0.05, "corrida a 10 km/h usa MET 10 (Compêndio)", act.runMet);
-ok(act.run === Math.round(act.runMet * act.kg * 0.5), "gasto = MET × peso × horas", act);
-ok(act.walkMet === 3.5 && act.walk === Math.round(3.5 * act.kg), "caminhada moderada de 1 h sem distância", act);
+ok(act.run === Math.round(act.kg * 5), "corrida: cerca de 1 kcal por kg a cada km (ACSM)", act);
+ok(act.runT === act.run, "com a distância, o tempo não muda a conta", act);
+ok(act.walkKm === Math.round(0.5 * act.kg * 4), "caminhada: cerca de 0,5 kcal por kg a cada km", act);
+ok(act.walk === Math.round(2.5 * act.kg), "só com o tempo: (MET − 1) × peso × horas", act);
 ok(act.withEx === act.base + act.run + act.walk && act.off === act.base, "exercício soma à meta só com a opção ligada", act);
 ok(/Exercício/i.test(act.eq) && /Restam/i.test(act.eq), "painel mostra meta − comida + exercício = restam", act.eq);
 await page.click('.tabs button[data-tab="ajustes"]');
