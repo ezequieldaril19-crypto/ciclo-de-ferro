@@ -209,6 +209,43 @@ label.btn{display:block;text-align:center;cursor:pointer;line-height:1.2}
 .seg.modes button{flex:1;padding:10px 0;font-size:14px}
 .seg.scope{width:100%}
 .seg.scope button{flex:1;padding:9px 2px;font-size:12px}
+/* Ajustes em grupos: cada item abre e fecha */
+.setlist{display:flex;flex-direction:column;gap:6px;margin-bottom:6px}
+details.set{background:linear-gradient(170deg,var(--panel-2),var(--panel) 70%);border-left:4px solid var(--line-2)}
+details.set[open]{border-left-color:var(--red)}
+details.set[hidden]{display:none}
+details.set > summary{list-style:none;display:flex;align-items:center;gap:10px;padding:14px 14px 13px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+details.set > summary::-webkit-details-marker{display:none}
+details.set > summary::after{content:"";flex:none;width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);margin:-5px 2px 0 0;transition:transform .15s}
+details.set[open] > summary::after{transform:rotate(-135deg);margin-top:3px}
+details.set > summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.set-t{flex:none;font-family:var(--f-impact);font-size:17px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink)}
+details.set > summary small{flex:1;min-width:0;text-align:right;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set-b{padding:4px 14px 16px 12px}
+/* Contador: meta − comida + exercício = restam */
+.kcal-eq{display:flex;align-items:stretch;gap:4px;margin-top:12px}
+.kcal-eq > span,.kcal-eq > button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--panel-2);border:0;padding:7px 2px 6px;color:var(--ink)}
+.kcal-eq b{font-family:var(--f-impact);font-weight:400;font-size:19px;line-height:1.05;letter-spacing:.01em}
+.kcal-eq small{font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+.kcal-eq i{font-style:normal;align-self:center;color:var(--dim);font-weight:700;font-size:15px;flex:none}
+.kcal-eq button{border:1px dashed var(--line-2);cursor:pointer}
+.kcal-eq button.on{border:1px solid var(--blue);background:#0a1d38}
+.kcal-eq button.on b{color:var(--blue-hot)}
+.kcal-eq .res{background:var(--red-deep)}
+.kcal-eq .res.bad b{color:var(--red-hot)}
+/* Atividades */
+.act-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+.act-grid button{background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink);padding:7px 2px 6px;font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0;line-height:1.15;text-align:center}
+.act-grid button i{font-style:normal;font-size:20px;line-height:1.1}
+.act-grid button[aria-checked=true]{background:var(--red);border-color:var(--red)}
+.act-res{display:flex;align-items:baseline;justify-content:center;gap:8px;flex-wrap:wrap;background:var(--panel-2);padding:10px 8px}
+.act-res b{font-family:var(--f-impact);font-weight:400;font-size:44px;line-height:1}
+.act-res span{color:var(--muted);font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:13px}
+.act-res small{flex-basis:100%;text-align:center;color:var(--muted);font-size:12px}
+.acts li{padding:0}
+.act-row{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;padding:9px 2px;cursor:pointer}
+.act-row span{flex:1;min-width:0}
+.act-row b{color:var(--blue-hot);font-weight:700;white-space:nowrap}
 /* Editor de metas */
 .goal-edit{margin-left:auto;flex:none;background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink);padding:7px 11px;font-weight:700;font-size:13px;letter-spacing:.04em}
 .goal-edit:active{background:var(--red)}
@@ -561,7 +598,7 @@ const DEFAULT_SETTINGS = () => ({
   custom:[], recipes:[], recent:[], shareNew:true, comDel:[],
   rest:90, autoRest:true, bar:20,
   voted:[], aiOk:false, aiWeek:{}, rem:null,
-  adaptive:true, tdeeHist:{}, fav:[], recentM:{}, showWater:true, waterGoal:null, showFast:false, fast:null, fastGoal:16, showMicro:true, shop:null, gone:[],
+  adaptive:true, tdeeHist:{}, fav:[], recentM:{}, showWater:true, waterGoal:null, showFast:false, fast:null, fastGoal:16, showMicro:true, shop:null, gone:[], exAdd:true,
   t:0
 });
 let S = DEFAULT_SETTINGS();
@@ -821,7 +858,43 @@ function dayTotals(k){
   d.items.forEach(it => { const m = itemMacros(it); t.kcal+=m.kcal; t.p+=m.p; t.c+=m.c; t.f+=m.f; });
   return t;
 }
-function dayTarget(k){ return cyclePlan(latestWeight(k), k)[dayType(k)]; }
+/* ================= Atividades: caminhada, corrida e outras =================
+   Gasto = MET × peso (kg) × horas. MET médios do Compêndio de Atividades Físicas (Ainsworth et al., 2011; Herrmann et al., 2024).
+   Com a distância, caminhada e corrida usam a velocidade de verdade. */
+const ACTS = [
+  {id:"caminhada", n:"Caminhada", ic:"🚶", km:true, lv:[["leve","Passeio",3.0],["mod","Moderada",3.5],["rap","Rápida",4.3],["sub","Subida",6.0]]},
+  {id:"corrida", n:"Corrida", ic:"🏃", km:true, lv:[["trote","Trote",7.0],["mod","Moderada",9.8],["forte","Forte",11.5]]},
+  {id:"bike", n:"Bicicleta", ic:"🚴", lv:[["leve","Leve",4.0],["mod","Moderada",6.8],["forte","Forte",10.0]]},
+  {id:"eliptico", n:"Elíptico", ic:"🌀", lv:[["leve","Leve",4.0],["mod","Moderado",5.0],["forte","Forte",7.0]]},
+  {id:"escada", n:"Escada", ic:"🪜", lv:[["mod","Moderada",8.8]]},
+  {id:"natacao", n:"Natação", ic:"🏊", lv:[["leve","Leve",6.0],["mod","Moderada",8.3],["forte","Forte",10.0]]},
+  {id:"corda", n:"Pular corda", ic:"🪢", lv:[["mod","Moderado",11.8]]},
+  {id:"futebol", n:"Futebol", ic:"⚽", lv:[["rec","Pelada",7.0],["jogo","Jogo",10.0]]},
+  {id:"funcional", n:"Funcional / HIIT", ic:"🔥", lv:[["mod","Moderado",8.0]]},
+  {id:"danca", n:"Dança", ic:"💃", lv:[["mod","Moderada",5.0]]}
+];
+const actDef = id => ACTS.find(a => a.id === id) || ACTS[0];
+// MET pela velocidade (km/h), interpolando os pontos do Compêndio
+const SPEED_MET = {caminhada:[[3.2,2.8],[4.0,3.0],[4.8,3.5],[5.6,4.3],[6.4,5.0],[7.2,7.0]], corrida:[[6.4,6.0],[8.0,8.3],[9.7,9.8],[11.3,11.0],[12.9,11.8],[14.5,12.8],[16.1,14.5]]};
+function metBySpeed(id, kmh){
+  const t = SPEED_MET[id]; if (!t || !(kmh > 0)) return null;
+  if (kmh <= t[0][0]) return t[0][1];
+  for (let i = 1; i < t.length; i++) if (kmh <= t[i][0]){ const [x0, y0] = t[i-1], [x1, y1] = t[i]; return y0 + (y1 - y0) * (kmh - x0) / (x1 - x0); }
+  return t[t.length-1][1];
+}
+function actMet(a){
+  const def = actDef(a.a), v = a.km && a.min ? a.km / (a.min/60) : 0;
+  return (def.km && metBySpeed(def.id, v)) || ((def.lv.find(l => l[0] === a.lv) || def.lv[Math.min(1, def.lv.length-1)])[2]);
+}
+const actKcal = (a, kg) => Math.round(actMet(a) * kg * (a.min || 0) / 60);
+const dayActs = k => { const d = getDay(k, false); return (d && d.act) || []; };
+const dayExercise = k => dayActs(k).reduce((x, a) => x + (a.kcal || 0), 0);
+function actLabel(a){ const def = actDef(a.a), lv = def.lv.find(l => l[0] === a.lv); return `${def.n}${def.lv.length > 1 && lv && !a.km ? " " + lv[1].toLowerCase() : ""}`; }
+// meta do dia; com "somar exercício" ligado, as calorias da atividade entram como carboidrato
+function dayTarget(k){
+  const base = cyclePlan(latestWeight(k), k)[dayType(k)], ex = S.exAdd === false ? 0 : dayExercise(k);
+  return ex ? {...base, c:Math.round(base.c + ex/4), kcal:base.kcal + ex, ex, base:base.kcal} : base;
+}
 /* Fibra e sódio: lidos da base pelo código do alimento (itens antigos também contam) */
 let foodIdx = null;
 function microOf(key){
@@ -1967,9 +2040,16 @@ function renderHoje(){
     <div class="row" style="margin-bottom:12px">${plan0.same ? `<span class="daytype M">Meta personalizada</span>` : `<button class="daytype ${type}" id="cycleType" title="Toque para trocar o tipo deste dia">${TYPE_NAME[type]} ${overridden?"<small>(ajustado)</small>":""}</button>`}<button class="goal-edit" id="goalEdit" aria-label="Editar metas de calorias e macros">✎ Metas</button></div>
     <div class="hero"><div>
       <div class="kcal-big num">${r0(t.kcal)}<small> / ${tg.kcal} kcal</small></div>
-      <div class="kcal-sub">${remain >= 0 ? `Restam <b class="num">${r0(remain)} kcal</b>` : `<b class="num bad">${r0(-remain)} kcal</b> acima da meta`}</div>
+      ${S.exAdd === false ? `<div class="kcal-sub">${remain >= 0 ? `Restam <b class="num">${r0(remain)} kcal</b>` : `<b class="num bad">${r0(-remain)} kcal</b> acima da meta`}</div>` : ""}
     </div>
     <div><div class="rank">${rankSvg()}<span class="letter ${rk?"":"none"}">${rk || "–"}</span></div><div class="rank-cap">${isToday && !rk ? "Em andamento" : "Rank do dia"}</div></div></div>
+    ${(() => { const ex = dayExercise(k), base = tg.base || tg.kcal, f = n => r0(n).toLocaleString("pt-BR");
+      if (S.exAdd === false) return ex ? `<p class="note" style="margin:10px 0 0">Exercício neste dia: <span class="num">${f(ex)} kcal</span>, sem somar à meta (dá para ligar em Ajustes).</p>` : "";
+      return `<div class="kcal-eq num" aria-label="Meta ${f(base)} menos comida ${f(t.kcal)} mais exercício ${f(ex)}: ${remain >= 0 ? `restam ${f(remain)}` : `${f(-remain)} acima`} kcal">
+        <span><b>${f(base)}</b><small>Meta</small></span><i aria-hidden="true">−</i>
+        <span><b>${f(t.kcal)}</b><small>Comida</small></span><i aria-hidden="true">+</i>
+        <button id="eqEx" class="${ex ? "on" : ""}" aria-label="Exercício: adicionar ou ver atividades"><b>${ex ? f(ex) : "+"}</b><small>Exercício</small></button><i aria-hidden="true">=</i>
+        <span class="res${remain < 0 ? " bad" : ""}"><b>${f(Math.abs(remain))}</b><small>${remain >= 0 ? "Restam" : "Acima"}</small></span></div>`; })()}
     <div class="bars">${barHTML("p","Proteína",t.p,tg.p)}${barHTML("c","Carbo",t.c,tg.c)}${barHTML("f","Gordura",t.f,tg.f)}</div>
     ${S.showMicro && d && d.items.length ? (() => { const mi = dayMicro(k), fbT = fiberGoal(tg.kcal), naM = sodiumMax(), naOk = mi.na <= naM;
       return `<div class="micro num"><span>Fibra <b>${r0(mi.fb)}</b> / ${fbT} g</span><span class="${naOk ? "" : "bad"}">Sódio <b>${r0(mi.na).toLocaleString("pt-BR")}</b> / ${naM.toLocaleString("pt-BR")} mg</span>${mi.kcal && mi.cover < mi.kcal*0.8 ? `<small>parcial: alguns alimentos sem esse dado</small>` : ""}</div>`; })() : ""}
@@ -2021,6 +2101,7 @@ function renderHoje(){
   $("#bkNow")?.addEventListener("click", () => { ui.tab = "ajustes"; ui.scrollTo = "dataSec"; render(); });
   bindDateBar();
   $("#goalEdit").onclick = openGoals;
+  $("#eqEx")?.addEventListener("click", () => { if (!dayActs(k).length){ openActivity(k); return; } ui.tab = "treino"; ui.scrollTo = "actSec"; render(); });
   if ($("#cycleType")) $("#cycleType").onclick = () => {
     const dd = getDay(k, true), base = S.week[dateOf(k).getDay()], order = ["A","M","B"];
     const next = order[(order.indexOf(type)+1)%3];
@@ -3248,6 +3329,67 @@ function bindCalendar(){
   view.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => { ui.day = b.dataset.jump; ui.calMonth = null; render(); window.scrollTo({top:0, behavior:"smooth"}); });
 }
 
+/* Adicionar ou editar atividade (caminhada, corrida…) num dia */
+function openActivity(k, editId){
+  const d0 = getDay(k, false), old = editId && d0 && (d0.act || []).find(a => a.id === editId);
+  const kg = latestWeight(k), last = S.lastAct || {};
+  const A = old ? {...old} : {a:last.a || "caminhada", lv:last.lv || "mod", min:last.min || 30, km:null};
+  if (!actDef(A.a).lv.some(l => l[0] === A.lv)) A.lv = actDef(A.a).lv[Math.min(1, actDef(A.a).lv.length - 1)][0];
+  openSheet(`${sheetHead(old ? "Editar atividade" : "Adicionar atividade")}
+    <div class="act-grid" role="radiogroup" aria-label="Atividade">${ACTS.map(x => `<button data-act="${x.id}" role="radio" aria-checked="${x.id === A.a}"><i>${x.ic}</i>${esc(x.n)}</button>`).join("")}</div>
+    <div id="actLv"></div>
+    <div class="grid2">
+      <div class="field"><label for="actMin">Tempo (min)</label><input id="actMin" type="text" inputmode="numeric" value="${A.min || ""}"></div>
+      <div class="field" id="actKmF"><label for="actKm">Distância (km)</label><input id="actKm" type="text" inputmode="decimal" placeholder="opcional" value="${A.km ? fmt1(A.km) : ""}"></div>
+    </div>
+    <div class="chips">${[15, 30, 45, 60, 90].map(m => `<button class="chip" data-amin="${m}">${m} min</button>`).join("")}</div>
+    <div class="act-res"><b class="num" id="actK">0</b><span>kcal</span><small id="actHow"></small></div>
+    <button class="btn wide" id="actSave">${old ? "Salvar" : "Adicionar atividade"}</button>
+    ${old ? `<button class="btn ghost wide" id="actDel" style="color:var(--red-hot)">Apagar atividade</button>` : ""}
+    <p class="note" style="margin:0">Estimativa pelo Compêndio de Atividades Físicas: intensidade (MET) × seu peso × tempo. Relógios e esteiras podem mostrar números diferentes.</p>`);
+  const draw = () => {
+    const def = actDef(A.a), v = A.km && A.min ? A.km / (A.min/60) : 0, bySpeed = def.km && v > 0;
+    $("#actLv").innerHTML = def.lv.length > 1 ? `<div class="seg modes" role="group" aria-label="Intensidade">${def.lv.map(l => `<button data-alv="${l[0]}" aria-pressed="${l[0] === A.lv && !bySpeed}" ${bySpeed ? "disabled" : ""}>${esc(l[1])}</button>`).join("")}</div>` : "";
+    $("#actKmF").hidden = !def.km;
+    $("#actLv").querySelectorAll("[data-alv]").forEach(b => b.onclick = () => { A.lv = b.dataset.alv; draw(); });
+    const kc = actKcal(A, kg), met = actMet(A);
+    $("#actK").textContent = kc.toLocaleString("pt-BR");
+    $("#actHow").textContent = `${bySpeed ? `ritmo de ${fmt1(v)} km/h · ` : ""}MET ${fmt1(met)} · com ${fmt1(kg)} kg, seu último peso`;
+    $("#actSave").disabled = !(A.min > 0);
+  };
+  document.querySelectorAll("[data-act]").forEach(b => b.onclick = () => {
+    A.a = b.dataset.act; const def = actDef(A.a);
+    if (!def.lv.some(l => l[0] === A.lv)) A.lv = def.lv[Math.min(1, def.lv.length - 1)][0];
+    if (!def.km) A.km = null;
+    document.querySelectorAll("[data-act]").forEach(x => x.setAttribute("aria-checked", String(x === b))); draw();
+  });
+  $("#actMin").oninput = e => { const v = num(e.target.value); A.min = v > 0 && v <= 600 ? Math.round(v) : 0; draw(); };
+  $("#actKm").oninput = e => { const v = num(e.target.value); A.km = v > 0 && v <= 200 ? v : null; draw(); };
+  document.querySelectorAll("[data-amin]").forEach(b => b.onclick = () => { A.min = +b.dataset.amin; $("#actMin").value = A.min; draw(); });
+  $("#actSave").onclick = () => {
+    const dd = getDay(k, true); dd.act = dd.act || [];
+    const item = {id:old ? old.id : uid(), a:A.a, lv:A.lv, min:A.min, kcal:actKcal(A, kg), kg:r1(kg)};
+    if (A.km) item.km = r1(A.km);
+    if (old) dd.act = dd.act.map(x => x.id === old.id ? item : x); else dd.act.push(item);
+    S.lastAct = {a:A.a, lv:A.lv, min:A.min}; touchSettings(); touchDay(k); closeSheet(); render();
+    toast(`${actLabel(item)}: ${item.kcal.toLocaleString("pt-BR")} kcal`);
+  };
+  $("#actDel")?.addEventListener("click", () => {
+    const dd = getDay(k, true), gone = old; dd.act = (dd.act || []).filter(x => x.id !== old.id); touchDay(k); closeSheet(); render();
+    toast("Atividade apagada", {label:"Desfazer", fn: () => { const d2 = getDay(k, true); d2.act = (d2.act || []).concat(gone); touchDay(k); render(); }});
+  });
+  draw();
+}
+function actsHTML(k){
+  const list = dayActs(k), tot = dayExercise(k);
+  return `<h2 class="sec b" id="actSec"><span class="t">Cardio e atividades</span>${tot ? `<small>${tot.toLocaleString("pt-BR")} kcal</small>` : ""}</h2><section class="panel">
+    ${list.length ? `<ul class="list-edit acts">${list.map(a => `<li><button class="act-row" data-aed="${a.id}"><span>${actDef(a.a).ic} ${esc(actLabel(a))} <small class="muted num">· ${a.min} min${a.km ? ` · ${fmt1(a.km)} km` : ""}</small></span><b class="num">${a.kcal.toLocaleString("pt-BR")} kcal</b></button></li>`).join("")}</ul>` : `<p class="note" style="margin:0">Caminhada, corrida, bicicleta e outras. O app calcula o gasto pelo tempo e pelo seu peso${S.exAdd === false ? "." : " e soma à meta de calorias do dia, na aba Dieta."}</p>`}
+    <button class="newmeal" id="actNew" style="margin-top:10px">+ Caminhada, corrida e outras</button></section>`;
+}
+function bindActs(k){
+  $("#actNew")?.addEventListener("click", () => openActivity(k));
+  view.querySelectorAll("[data-aed]").forEach(b => b.onclick = () => openActivity(k, b.dataset.aed));
+}
 function renderTreino(){
   const k = ui.day, d = getDay(k, false), prog = PROGRAMS[S.program], wo = d && d.wo;
   if (ui.calMonth && ui.calDay !== k){ ui.calMonth = null; }
@@ -3260,6 +3402,7 @@ function renderTreino(){
       <div class="label" style="margin-bottom:6px">Próxima sessão · ${esc(preview.name)}</div>
       <table class="mac"><tbody>${preview.ex.map(e => `<tr><td>${esc(e.n)}</td><td>${e.t}</td></tr>`).join("")}</tbody></table>
       <div class="row" style="margin-top:14px"><button class="btn grow" id="startWo">Começar treino</button><button class="btn ghost" id="chgProg">Trocar</button></div></section>`;
+    html += actsHTML(k);
     html += secH("Montar meu treino", `${allExercises().length} exercícios`, true) + `<section class="panel">
       ${S.myWo.length ? `<ul class="list-edit">${S.myWo.map(t => `<li><span>${esc(t.name)} <small class="muted">· ${t.ex.length} ${t.ex.length === 1 ? "exercício" : "exercícios"}</small></span><button class="add" data-tpl="${t.id}">Começar</button>${Community ? `<button class="mini${t.sid ? " on" : ""}" data-tplpub="${t.id}" aria-label="${t.sid ? "Tirar da comunidade" : "Publicar na comunidade"}" title="${t.sid ? "Na comunidade" : "Publicar na comunidade"}">${t.sid ? "★" : "☆"}</button>` : ""}<button class="mini" data-tplsend="${t.id}" aria-label="Enviar ${esc(t.name)} por link" title="Enviar">↗</button><button class="mini del" data-tplrm="${t.id}" aria-label="Apagar ${esc(t.name)}">×</button></li>`).join("")}</ul>`
         : `<p class="note" style="margin:0 0 4px">Escolha os exercícios que quiser da lista completa, por grupo muscular. Depois salve o treino para repetir nos próximos dias.</p>`}
@@ -3292,17 +3435,24 @@ function renderTreino(){
       ${wo.done ? `<button class="btn blue wide" id="shareWo" style="margin-top:10px">Compartilhar treino</button>` : ""}
       ${wo.ex.length ? `<button class="btn ghost wide" id="saveTpl" style="margin-top:10px">${wo.tpl ? "Salvar mudanças no meu treino" : "Salvar como meu treino"}</button><button class="btn ghost wide" id="sendWo" style="margin-top:10px">Enviar este treino por link</button>` : ""}
       <div id="discardConfirm" hidden style="margin-top:10px"><p class="note warn" style="margin:0 0 8px">Descartar apaga o registro deste treino.</p><div class="row"><button class="btn grow" id="discardYes">Sim, descartar</button><button class="btn ghost" id="discardNo">Cancelar</button></div></div></section>`;
+    html += actsHTML(k);
   }
   html += `<h2 class="sec b" id="calSec"><span class="t">Calendário</span><small>dias treinados</small></h2>` + calendarHTML(k);
   html += progressionHTML(k);
-  const hist = allWorkouts().filter(x => x.wo.done).slice(-8).reverse();
-  html += secH("Histórico", "últimos treinos", true) + `<section class="panel">${hist.length ? `<ul class="hist">${hist.map(x => {
+  const hist = allWorkouts().filter(x => x.wo.done).map(x => ({k:x.k, wo:x.wo}));
+  eachDay((dk, dd) => (dd.act || []).forEach(a => hist.push({k:dk, act:a})));
+  hist.sort((a, b) => b.k.localeCompare(a.k));
+  const histShown = hist.slice(0, 10);
+  html += secH("Histórico", "últimos treinos e atividades", true) + `<section class="panel">${histShown.length ? `<ul class="hist">${histShown.map(x => {
+      if (x.act) return `<li><button data-jump="${x.k}"><span>${shortDate(x.k)} · ${actDef(x.act.a).ic} ${esc(actLabel(x.act))} ${x.act.min} min</span><span class="num muted">${x.act.kcal.toLocaleString("pt-BR")} kcal</span></button></li>`;
       const vol = x.wo.ex.reduce((a,e) => a + workSets(e).reduce((b,s) => b + (num(s.kg)||0)*(num(s.r)||0), 0), 0);
-      return `<li><button data-jump="${x.k}"><span>${shortDate(x.k)} · ${esc(x.wo.name)}</span><span class="num muted">${r0(vol).toLocaleString("pt-BR")} kg</span></button></li>`; }).join("")}</ul><p class="note" style="margin:8px 0 0">À direita: volume total do treino (carga × repetições). Toque para abrir o treino.</p>`
-    : `<p class="note" style="margin:0">Seus treinos concluídos aparecem aqui, com o volume de cada um.</p>`}</section>`;
+      return `<li><button data-jump="${x.k}"><span>${shortDate(x.k)} · ${esc(x.wo.name)}</span><span class="num muted">${r0(vol).toLocaleString("pt-BR")} kg</span></button></li>`; }).join("")}</ul><p class="note" style="margin:8px 0 0">À direita: volume do treino (carga × repetições) ou o gasto da atividade. Toque para abrir o dia.</p>`
+    : `<p class="note" style="margin:0">Seus treinos concluídos e atividades aparecem aqui.</p>`}</section>`;
   view.innerHTML = html;
   bindDateBar();
   bindCalendar();
+  bindActs(k);
+  if (ui.scrollTo){ document.getElementById(ui.scrollTo)?.scrollIntoView({block:"start"}); ui.scrollTo = null; }
   $("#chgProg")?.addEventListener("click", () => { ui.tab = "ajustes"; ui.scrollTo = "progSec"; render(); });
   $("#startWo")?.addEventListener("click", () => { const dd = getDay(k, true); dd.wo = newSession(k); dd.wo.t0 = Date.now(); touchDay(k); render(); });
   $("#freeWo")?.addEventListener("click", () => {
@@ -4047,7 +4197,12 @@ function openGoals(){
 function renderAjustes(){
   const w = latestWeight(todayKey()), plan = cyclePlan(w, todayKey()), rec = recommendProgram(S.days, S.level);
   const low = Math.min(plan.A.kcal, plan.M.kcal, plan.B.kcal);
-  let html = secH("Perfil") + `<section class="panel"><div class="grid2">
+  ui.setOpen = ui.setOpen || new Set(); if (ui.scrollTo) ui.setOpen.add(ui.scrollTo);
+  const G = (id, title, sum, body, attrs = "") => `<details class="set" id="${id}" ${ui.setOpen.has(id) ? "open" : ""} ${attrs}><summary><span class="set-t">${title}</span><small>${sum || ""}</small></summary><div class="set-b">${body}</div></details>`;
+  const ext = h => { const m = /^\s*<h2[^>]*>([\s\S]*?)<\/h2>\s*<section class="panel( stack)?"[^>]*>([\s\S]*)<\/section>\s*$/.exec(h || ""); if (!m) return null;
+    const sm = /<small>([\s\S]*?)<\/small>/.exec(m[1]); return {sum: sm ? sm[1] : "", body: m[2] ? `<div class="stack">${m[3]}</div>` : m[3]}; };
+  const GOALN = {cut:"Cutting", keep:"Manutenção", bulk:"Bulking"};
+  let html = secH("Você") + `<div class="setlist">` + G("setPerfil", "Perfil", `${fmt1(w)} kg · ${S.height} cm · ${GOALN[S.goal] || ""}${S.goal === "cut" ? ` ${S.def}%` : ""}`, `<div class="grid2">
     <div class="field"><label for="sSex">Sexo</label><select id="sSex"><option value="m" ${S.sex==="m"?"selected":""}>Masculino</option><option value="f" ${S.sex==="f"?"selected":""}>Feminino</option></select></div>
     <div class="field"><label for="sAge">Idade</label><input id="sAge" type="number" inputmode="numeric" value="${S.age}"></div>
     <div class="field"><label for="sH">Altura (cm)</label><input id="sH" type="number" inputmode="numeric" value="${S.height}"></div>
@@ -4061,10 +4216,9 @@ function renderAjustes(){
   ${low < plan.bmr ? `<p class="note warn" style="margin:6px 0 0">Seu dia de carbo baixo fica abaixo do metabolismo basal. Cortes muito agressivos tendem a custar massa muscular e rendimento no treino.</p>` : ""}
   <button class="chip share-tg" id="sAdapt" aria-pressed="${S.adaptive}" style="margin-top:10px">${S.adaptive ? "✓ Ajustar a meta pelo meu gasto real" : "Usar só a fórmula"}</button>
   <p class="note" style="margin:6px 0 0">Com 2 a 4 semanas de peso e refeições registrados, o app calcula quanto você gasta de verdade e corrige a meta todo domingo. Veja em Evolução.</p>
-  ${S.goalMode === "custom" ? "" : `<details style="margin-top:10px"><summary>Definir calorias manualmente</summary><div class="row" style="margin-top:8px"><input id="sMan" type="number" inputmode="numeric" placeholder="Ex.: 2200" value="${S.manualKcal || ""}"><span class="muted">kcal</span></div><p class="note">Deixe vazio para usar o cálculo automático.</p></details>`}
-  </section>`;
+  ${S.goalMode === "custom" ? "" : `<details style="margin-top:10px"><summary>Definir calorias manualmente</summary><div class="row" style="margin-top:8px"><input id="sMan" type="number" inputmode="numeric" placeholder="Ex.: 2200" value="${S.manualKcal || ""}"><span class="muted">kcal</span></div><p class="note">Deixe vazio para usar o cálculo automático.</p></details>`}`);
 
-  html += secH(plan.custom ? "Metas" : "Metas e ciclo de carbo", plan.custom ? "personalizadas" : "automáticas", true) + `<section class="panel" id="goalSec">
+  html += G("goalSec", "Calorias e macros", `${plan.avg.toLocaleString("pt-BR")} kcal/dia · ${plan.custom ? "personalizadas" : "automáticas"}`, `
     ${plan.same ? "" : `<div class="label" style="margin-bottom:6px">Semana (toque para trocar)</div>
     <div class="week">${S.week.map((t,i) => `<button class="${t}" data-wd="${i}" aria-label="${WD[i]}: ${TYPE_NAME[t]}">${WD[i]}<b>${t === "A" ? "ALTO" : t === "M" ? "MÉD" : "BAIXO"}</b></button>`).join("")}</div>
     <p class="note" style="margin:8px 0 12px">Coloque o carbo alto nos treinos mais pesados (pernas, costas) e o baixo nos dias de descanso.</p>`}
@@ -4076,57 +4230,63 @@ function renderAjustes(){
       <div class="field" style="grid-column:1/-1"><label for="sProt">Proteína (g por kg)</label><input id="sProt" type="text" inputmode="decimal" value="${fmt1(S.prot)}"></div>
       ${["A","M","B"].map(t => `<div class="field"><label for="sF${t}">Gordura ${TYPE_NAME[t].split(" ")[1]} (g/kg)</label><input id="sF${t}" type="text" inputmode="decimal" value="${fmt1(S.fat[t])}"></div><div class="field"><label for="sR${t}">Peso do carbo ${TYPE_NAME[t].split(" ")[1]}</label><input id="sR${t}" type="text" inputmode="decimal" value="${fmt1(S.ratio[t])}"></div>`).join("")}
     </div><p class="note">O "peso do carbo" define a proporção entre os dias. O app distribui o carboidrato para que a média da semana bata a meta de calorias.</p></details>`}
-  </section>`;
+    <div class="label" style="margin:16px 0 6px">Exercício</div>
+    <button class="chip share-tg" id="sExAdd" aria-pressed="${S.exAdd !== false}">${S.exAdd !== false ? "✓ Somar caminhada, corrida e outras à meta do dia" : "Exercício não muda a meta do dia"}</button>
+    <p class="note" style="margin:6px 0 0">${S.exAdd !== false ? "As calorias das atividades registradas na aba Treino entram na meta do dia como carboidrato. Para não contar duas vezes, deixe o nível de atividade do perfil em <b>Leve</b> se o cardio for o que te deixa mais ativo." : "As atividades continuam registradas na aba Treino, só não mudam a meta."}</p>`) + `</div>`;
 
-  html += secH("Painel do dia", "", true) + `<section class="panel stack">
-    <button class="chip share-tg" id="tWater" aria-pressed="${S.showWater}">${S.showWater ? "✓" : "○"} Água</button>
-    <div class="field" ${S.showWater ? "" : "hidden"}><label for="sWater">Meta de água (ml por dia)</label><input id="sWater" type="text" inputmode="numeric" placeholder="${waterGoal()} (35 ml por kg)" value="${S.waterGoal || ""}"></div>
-    <button class="chip share-tg" id="tFast" aria-pressed="${S.showFast}">${S.showFast ? "✓" : "○"} Jejum intermitente</button>
-    <button class="chip share-tg" id="tMicro" aria-pressed="${S.showMicro}">${S.showMicro ? "✓" : "○"} Fibra e sódio</button>
-    <p class="note" style="margin:0">Fibra: ${S.fibGoal ? `meta de ${S.fibGoal} g por dia` : "meta de 14 g para cada 1.000 kcal"}. Sódio: limite de ${sodiumMax().toLocaleString("pt-BR")} mg por dia${S.naMax ? "" : " (OMS)"}. Você muda os dois em Editar calorias e macros. A TACO mede os alimentos sem sal de cozinha; a tabela do IBGE já inclui o sal do preparo.</p>
-  </section>`;
-  html += secH("Refeições do dia") + `<section class="panel">
+  let MEALS_BODY = `
     <ul class="list-edit">${S.meals.map((m,i) => `<li><span>${esc(m.n)}</span><button class="mini" data-up="${i}" aria-label="Subir ${esc(m.n)}" ${i===0?"disabled":""}>↑</button><button class="mini" data-down="${i}" aria-label="Descer ${esc(m.n)}" ${i===S.meals.length-1?"disabled":""}>↓</button><button class="mini del" data-rm="${i}" aria-label="Remover ${esc(m.n)}">×</button></li>`).join("")}</ul>
     <button class="newmeal" id="newMeal2" style="margin-top:10px">+ Nova refeição</button>
     <div class="label" style="margin:16px 0 4px">Refeições prontas</div>
     ${S.saved.length ? `<ul class="list-edit">${S.saved.map(s => { const t = savedTotals(s); return `<li><span>${esc(s.n)} <small class="muted num">· ${s.items.length} itens · ${r0(t.kcal)} kcal</small></span><button class="mini del" data-svrm="${s.id}" aria-label="Apagar ${esc(s.n)}">×</button></li>`; }).join("")}</ul>`
-      : `<p class="note" style="margin:0">Nenhuma ainda. Na aba Dieta, toque em ⋮ numa refeição com alimentos e escolha "Salvar refeição pronta".</p>`}
-  </section>`;
+      : `<p class="note" style="margin:0">Nenhuma ainda. Na aba Dieta, toque em ⋮ numa refeição com alimentos e escolha "Salvar refeição pronta".</p>`}`;
 
-  html += secH("Minhas receitas", S.recipes.length ? `${S.recipes.length} salvas` : "") + `<section class="panel">
+  let RECIPES_BODY = `
     ${S.recipes.length ? `<ul class="list-edit">${S.recipes.map(r => { const c = recipeCalc(r); return `<li><span>${esc(r.n)} <small class="muted num">· ${r.items.length} ingredientes${r.sid ? " · na comunidade" : ""} · rende ${fmtQ(c.s)} ${esc(unitName(c.unit, c.s))} · ${r0(c.portion.k)} kcal por ${esc(c.unit)}</small></span><button class="add" data-rce="${r.id}">Editar</button><button class="mini del" data-rcrm="${r.id}" aria-label="Apagar ${esc(r.n)}">×</button></li>`; }).join("")}</ul>`
       : `<p class="note" style="margin:0">Junte ingredientes, diga quantas porções rende e o app calcula os macros de cada porção. A receita aparece na busca de alimentos e pode entrar em outras receitas.</p>`}
-    <button class="newmeal" id="rcNew" style="margin-top:10px">+ Criar receita</button></section>`;
-  html += secH("Meus alimentos", S.custom.length ? `${S.custom.length} cadastrados` : "", true) + `<section class="panel">
+    <button class="newmeal" id="rcNew" style="margin-top:10px">+ Criar receita</button>`;
+  let FOODS_BODY = `
     ${S.custom.length ? `<ul class="list-edit">${S.custom.map(c => `<li><span>${esc(foodLabel(c))} <small class="muted num">· ${r0(c.k)} kcal · P ${fmt1(c.p)} · C ${fmt1(c.c)} · G ${fmt1(c.f)} por 100 g${c.bc ? " · código de barras" : ""}${c.sid ? " · na comunidade" : c.pend ? " · compartilha quando tiver internet" : ""}</small></span><button class="add" data-cfe="${c.id}">Editar</button><button class="mini del" data-cfrm="${c.id}" aria-label="Apagar ${esc(c.n)}">×</button></li>`).join("")}</ul>`
       : `<p class="note" style="margin:0">Alimentos que você cadastrar pelo rótulo ou pelo código de barras aparecem aqui para editar ou apagar.</p>`}
-    <button class="newmeal" id="cfNew" style="margin-top:10px">+ Cadastrar novo alimento</button></section>`;
+    <button class="newmeal" id="cfNew" style="margin-top:10px">+ Cadastrar novo alimento</button>`;
+  let COM_BODY = "";
   if (Community){
     const mineShared = S.custom.filter(c => c.sid).length, notShared = S.custom.filter(c => !c.sid && !c.share).length, last = Community.lastSync();
-    html += secH("Comunidade", `${Community.count().toLocaleString("pt-BR")} ${Community.count() === 1 ? "alimento" : "alimentos"}`, true) + `<section class="panel stack">
+    COM_BODY = `<div class="stack">
       <p class="note" style="margin:0">Alimentos, receitas e treinos de quem usa o Muscle Land aparecem para você, com a etiqueta "comunidade". O que você compartilha aparece para todos, e só você pode editar ou tirar. Alimentos com 2 confirmações de "confere com o rótulo" ganham o selo ✓ verificado.</p>
       <p class="note" style="margin:0">Compartilhados por você: <b class="num" style="color:var(--ink)">${mineShared}</b>${notShared ? ` · só no seu celular: <b class="num" style="color:var(--ink)">${notShared}</b>` : ""}</p>
       ${notShared ? `<button class="btn blue wide" id="comAll">Compartilhar meus ${notShared} ${notShared === 1 ? "alimento" : "alimentos"}</button>` : ""}
       <button class="chip share-tg" id="comDef" aria-pressed="${S.shareNew !== false}">${S.shareNew !== false ? "✓ Compartilhar novos cadastros" : "Novos cadastros só no meu celular"}</button>
       <button class="btn ghost wide" id="comSync">Atualizar agora</button>
       <p class="note" style="margin:0">${last ? `Atualizado ${new Date(last).toLocaleString("pt-BR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"})}.` : "Ainda não atualizado neste celular."} Nada pessoal vai junto: só nome, marca, valores e medidas do alimento.</p>
-    </section>`;
+    </div>`;
   }
-  html += `<h2 class="sec b" id="progSec"><span class="t">Programa de treino</span></h2><section class="panel"><div class="grid2">
+  html += secH("Dieta") + `<div class="setlist">` + G("setMeals", "Refeições", `${S.meals.length} no dia · ${S.saved.length} ${S.saved.length === 1 ? "pronta" : "prontas"}`, MEALS_BODY);
+  html += G("setFoods", "Meus alimentos", S.custom.length ? `${S.custom.length} ${S.custom.length === 1 ? "cadastrado" : "cadastrados"}` : "nenhum ainda", FOODS_BODY);
+  html += G("setRecipes", "Minhas receitas", S.recipes.length ? `${S.recipes.length} ${S.recipes.length === 1 ? "salva" : "salvas"}` : "nenhuma ainda", RECIPES_BODY);
+  if (COM_BODY) html += G("setCom", "Comunidade", `${Community.count().toLocaleString("pt-BR")} ${Community.count() === 1 ? "alimento" : "alimentos"}`, COM_BODY);
+  html += G("setPanel", "Painel do dia", [S.showWater && "água", S.showFast && "jejum", S.showMicro && "fibra e sódio"].filter(Boolean).join(", ") || "só calorias e macros", `<div class="stack">
+    <button class="chip share-tg" id="tWater" aria-pressed="${S.showWater}">${S.showWater ? "✓" : "○"} Água</button>
+    <div class="field" ${S.showWater ? "" : "hidden"}><label for="sWater">Meta de água (ml por dia)</label><input id="sWater" type="text" inputmode="numeric" placeholder="${waterGoal()} (35 ml por kg)" value="${S.waterGoal || ""}"></div>
+    <button class="chip share-tg" id="tFast" aria-pressed="${S.showFast}">${S.showFast ? "✓" : "○"} Jejum intermitente</button>
+    <button class="chip share-tg" id="tMicro" aria-pressed="${S.showMicro}">${S.showMicro ? "✓" : "○"} Fibra e sódio</button>
+    <p class="note" style="margin:0">Fibra: ${S.fibGoal ? `meta de ${S.fibGoal} g por dia` : "meta de 14 g para cada 1.000 kcal"}. Sódio: limite de ${sodiumMax().toLocaleString("pt-BR")} mg por dia${S.naMax ? "" : " (OMS)"}. Você muda os dois em Editar calorias e macros. A TACO mede os alimentos sem sal de cozinha; a tabela do IBGE já inclui o sal do preparo.</p>
+  </div>`) + `</div>`;
+  html += secH("Treino") + `<div class="setlist">` + G("progSec", "Programa de treino", `${(PROGRAMS[S.program] || {}).name || ""} · ${S.days}x por semana`, `<div class="grid2">
     <div class="field"><label for="sDays">Dias por semana</label><select id="sDays">${[2,3,4,5,6].map(v => `<option ${S.days==v?"selected":""}>${v}</option>`).join("")}</select></div>
     <div class="field"><label for="sLvl">Nível</label><select id="sLvl">${[["ini","Iniciante"],["int","Intermediário"],["avc","Avançado"]].map(([v,l]) => `<option value="${v}" ${S.level===v?"selected":""}>${l}</option>`).join("")}</select></div></div>
-    <div class="stack" style="margin-top:12px;gap:6px">${Object.entries(PROGRAMS).map(([id,p]) => `<button class="prog-opt" data-prog="${id}" aria-pressed="${S.program===id}"><b>${esc(p.name)}${id===rec?"<em>indicado</em>":""}</b><span>${esc(p.tag)}</span></button>`).join("")}</div>
-  </section>`;
+    <div class="stack" style="margin-top:12px;gap:6px">${Object.entries(PROGRAMS).map(([id,p]) => `<button class="prog-opt" data-prog="${id}" aria-pressed="${S.program===id}"><b>${esc(p.name)}${id===rec?"<em>indicado</em>":""}</b><span>${esc(p.tag)}</span></button>`).join("")}</div>`) + `</div>`;
 
-  html += `<div id="aiSet" ${ui.aiAvail ? "" : "hidden"}>` + secH("Inteligência artificial", ui.aiName || "") + `<section class="panel stack">
+  html += secH("Conta e app") + `<div class="setlist">`;
+  const acc = ext(accountHTML()); if (acc) html += G("accSec", "Conta e backup", Account && Account.user() ? "conectado" : "entrar com Google", acc.body);
+  const rem = ext(remindersHTML()); if (rem) html += G("setRem", "Lembretes", rem.sum || "desligados", rem.body);
+  html += G("aiSet", "Inteligência artificial", ui.aiName || "", `<div class="stack">
     <p class="note" style="margin:0">Usada para ler rótulos, montar refeições pelo que você fala ou fotografa e resumir a semana. Tudo é sugestão: você confere antes de salvar.</p>
     ${MLAI ? `<button class="chip share-tg" id="aiTg" aria-pressed="${S.aiOk}">${S.aiOk ? "✓ IA autorizada" : "IA desligada: pergunta antes de usar"}</button>
     <p class="note" style="margin:0">Usa a cota gratuita do Gemini (Google). Ela é dividida por todos que usam o app, então às vezes pode pedir para esperar 1 minuto. Na cota gratuita, o Google pode usar fotos e textos para melhorar os produtos dele.</p>` : ""}
-  </section></div>`;
-  if (typeof pwaPanel === "function") html += pwaPanel();
-  html += remindersHTML();
-  html += accountHTML();
-  html += `<h2 class="sec" id="dataSec"><span class="t">Seus dados</span></h2><section class="panel stack">
+  </div>`, ui.aiAvail ? "" : "hidden");
+  const pwa = typeof pwaPanel === "function" ? ext(pwaPanel()) : null; if (pwa) html += G("setPwa", "Instalar no celular", "", pwa.body);
+  html += G("dataSec", "Seus dados", "backup, planilhas e relatório", `<div class="stack">
     <p class="note" style="margin:0">${Cloud.ready ? (Account && Account.user() ? "Seus registros ficam salvos na sua conta Google e aparecem em qualquer aparelho em que você entrar com ela." : "Seus registros ficam salvos na sua conta Claude e aparecem em qualquer aparelho em que você abrir o app logado.") : "Nesta tela os registros ficam só neste aparelho. Exporte um backup de vez em quando."}</p>
     <button class="btn ghost wide" id="exp">Exportar backup (.json)</button>
     <div class="label" style="margin-top:4px">Planilhas (abrem no Excel e no Google Planilhas)</div>
@@ -4139,10 +4299,14 @@ function renderAjustes(){
     ${(() => { let at = 0; try{ at = +localStorage.getItem(SNAP_KEY + ".at") || 0; }catch(e){} return at ? `<button class="btn ghost wide" id="snapBack">Voltar como estava antes da última sincronização</button><div id="snapConfirm" hidden><p class="note" style="margin:0 0 8px">O app guardou uma cópia dos seus dados em ${new Date(at).toLocaleString("pt-BR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"})}, antes de juntar com a nuvem. Voltar troca os dados de agora por essa cópia.</p><div class="row"><button class="btn grow" id="snapYes">Voltar para a cópia</button><button class="btn ghost" id="snapNo">Cancelar</button></div></div>` : ""; })()}
     <button class="btn ghost wide" id="wipe" style="color:var(--red-hot)">Apagar todos os dados</button>
     <div id="wipeConfirm" hidden><p class="note warn" style="margin:0 0 8px">Isso apaga refeições, pesos, medidas, treinos e ajustes. Não dá para desfazer.</p><div class="row"><button class="btn grow" id="wipeYes">Apagar tudo</button><button class="btn ghost" id="wipeNo">Cancelar</button></div></div>
+  </div>`);
+  html += G("setAbout", "Sobre o app", "fontes e privacidade", `<div class="stack">
     <p class="note" style="margin:0">Alimentos: TACO 4ª edição (NEPA/Unicamp) e Tabelas de Composição Nutricional do IBGE (POF 2008-2009), ao todo 1.972 itens. Suplementos com valores médios de rótulos. Industrializados entram pelo código de barras ou pelo cadastro.</p>
     <p class="note" style="margin:0"><a href="https://ezequieldaril19-crypto.github.io/ciclo-de-ferro/privacidade.html" target="_blank" rel="noopener" style="color:var(--blue-hot)">Política de privacidade</a></p>
-  </section>`;
+    <p class="note" style="margin:0">Gasto das atividades: Compêndio de Atividades Físicas (Ainsworth et al., 2011; Herrmann et al., 2024).</p>
+  </div>`) + `</div>`;
   view.innerHTML = html;
+  view.querySelectorAll("details.set").forEach(dt => dt.addEventListener("toggle", () => { if (dt.open) ui.setOpen.add(dt.id); else ui.setOpen.delete(dt.id); }));
   if (ui.scrollTo){ document.getElementById(ui.scrollTo)?.scrollIntoView({block:"start"}); ui.scrollTo = null; }
 
   const bindNum = (id, fn) => $(id)?.addEventListener("change", e => { const v = num(e.target.value); if (v != null) { fn(v); touchSettings(); render(); } });
@@ -4153,10 +4317,11 @@ function renderAjustes(){
   $("#sAct").onchange = e => { S.act = +e.target.value; touchSettings(); render(); };
   $("#sGoal").onchange = e => { S.goal = e.target.value; touchSettings(); render(); };
   $("#sDef").onchange = e => { S.def = +e.target.value; touchSettings(); render(); };
-  aiEngine().then(e => { ui.aiAvail = !!e; ui.aiName = e ? e.name : ""; const w = $("#aiSet"); if (w){ w.hidden = !e; const sm = w.querySelector("h2 small"); if (sm) sm.textContent = ui.aiName; else if (e) w.querySelector("h2").insertAdjacentHTML("beforeend", `<small>${esc(e.name)}</small>`); } });
+  aiEngine().then(e => { ui.aiAvail = !!e; ui.aiName = e ? e.name : ""; const w = $("#aiSet"); if (w){ w.hidden = !e; const sm = w.querySelector("summary small"); if (sm) sm.textContent = ui.aiName; } });
   $("#aiTg")?.addEventListener("click", () => { S.aiOk = !S.aiOk; touchSettings(); render(); });
   bindAccount(); bindReminders();
   $("#sAdapt").onclick = () => { S.adaptive = !S.adaptive; touchSettings(); render(); };
+  $("#sExAdd").onclick = () => { S.exAdd = S.exAdd === false; touchSettings(); render(); };
   [["#tWater","showWater"],["#tFast","showFast"],["#tMicro","showMicro"]].forEach(([id, k]) => $(id).onclick = () => { S[k] = !S[k]; touchSettings(); render(); });
   $("#sWater")?.addEventListener("change", e => { const v = num(e.target.value); S.waterGoal = v && v >= 500 && v <= 8000 ? Math.round(v) : null; touchSettings(); render(); });
   $("#sMan")?.addEventListener("change", e => { const v = num(e.target.value); S.manualKcal = v && v > 800 ? Math.round(v) : null; touchSettings(); render(); });

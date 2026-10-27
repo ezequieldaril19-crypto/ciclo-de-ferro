@@ -166,8 +166,8 @@ ok(await page.evaluate(() => getDay(todayKey()).items.some(i => /Banana/i.test(i
 console.log("Relatório para imprimir");
 await page.click('.tabs button[data-tab="ajustes"]');
 ok(await page.evaluate(() => { rulesOk = false; render(); const hidden = !document.querySelector("#accIn") && !document.querySelector("#remOn"); rulesOk = true; render(); return hidden; }), "sem as regras publicadas, conta e lembretes ficam escondidos");
-ok(await page.evaluate(() => !!document.querySelector("#accIn") && /Entrar com Google/.test(document.querySelector("#accSec").nextElementSibling.textContent)), "Ajustes mostra Entrar com Google");
-ok(await page.evaluate(() => !!Reminders && /Lembretes/.test(document.querySelector("#view").innerText)), "Ajustes mostra os lembretes");
+ok(await page.evaluate(() => !!document.querySelector("#accIn") && /Entrar com Google/.test(document.querySelector("#accSec").textContent)), "Ajustes mostra Entrar com Google");
+ok(await page.evaluate(() => !!Reminders && /Lembretes/i.test(document.querySelector("#view").innerText)), "Ajustes mostra os lembretes");
 const rep = await page.evaluate(() => reportHTML(30));
 ok(/Relatório/.test(rep) && /Peso/.test(rep) && /Treinos/.test(rep) && /<table/.test(rep), "relatório em PDF monta as seções");
 
@@ -193,6 +193,29 @@ const sync = await page.evaluate(async () => {
 });
 ok(sync.bGot >= sync.before, "aparelho novo recebe todo o histórico da nuvem", sync);
 ok(sync.aAfter >= sync.before && sync.hasNew, "um aparelho com 1 dia não apaga o mês do outro", sync);
+
+console.log("Atividades e contador de calorias");
+const act = await page.evaluate(() => {
+  const k = todayKey(), kg = latestWeight(k), base = dayTarget(k).kcal, d = getDay(k, true);
+  const run = {a:"corrida", lv:"mod", min:30, km:5}, walk = {a:"caminhada", lv:"mod", min:60};
+  d.act = [{id:"t1", ...run, kcal:actKcal(run, kg)}, {id:"t2", ...walk, kcal:actKcal(walk, kg)}];
+  const out = {kg, base, runMet:actMet(run), walkMet:actMet(walk), run:actKcal(run, kg), walk:actKcal(walk, kg), withEx:dayTarget(k).kcal};
+  S.exAdd = false; out.off = dayTarget(k).kcal; S.exAdd = true;
+  ui.tab = "hoje"; ui.day = k; render(); out.eq = (document.querySelector(".kcal-eq") || {}).textContent || "";
+  delete d.act; render();
+  return out;
+});
+ok(Math.abs(act.runMet - 10) < 0.05, "corrida a 10 km/h usa MET 10 (Compêndio)", act.runMet);
+ok(act.run === Math.round(act.runMet * act.kg * 0.5), "gasto = MET × peso × horas", act);
+ok(act.walkMet === 3.5 && act.walk === Math.round(3.5 * act.kg), "caminhada moderada de 1 h sem distância", act);
+ok(act.withEx === act.base + act.run + act.walk && act.off === act.base, "exercício soma à meta só com a opção ligada", act);
+ok(/Exercício/i.test(act.eq) && /Restam/i.test(act.eq), "painel mostra meta − comida + exercício = restam", act.eq);
+await page.click('.tabs button[data-tab="ajustes"]');
+ok(await page.evaluate(() => { const ds = [...document.querySelectorAll("#view details.set")]; return ds.length >= 8 && ds.every(d => !d.open); }), "Ajustes em itens fechados");
+await page.click("#goalSec summary");
+await page.click("#sExAdd");
+ok(await page.evaluate(() => document.querySelector("#goalSec").open && S.exAdd === false), "item continua aberto depois de mudar uma opção");
+await page.click("#sExAdd"); await page.click("#goalSec summary");
 
 console.log("Tela pequena");
 await page.setViewportSize({width:320, height:640});
