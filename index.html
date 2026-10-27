@@ -233,6 +233,7 @@ details.set > summary small{flex:1;min-width:0;text-align:right;color:var(--mute
 .kcal-eq button.on b{color:var(--blue-hot)}
 .kcal-eq .res{background:var(--red-deep)}
 .kcal-eq .res.bad b{color:var(--red-hot)}
+.bar-ex{font-family:var(--f-body);font-weight:600;font-size:11px;color:var(--blue-hot);letter-spacing:0;text-transform:none}
 /* Atividades */
 .act-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
 .act-grid button{background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink);padding:7px 2px 6px;font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0;line-height:1.15;text-align:center}
@@ -2039,19 +2040,20 @@ function renderHoje(){
   html += `<section class="panel" style="margin-top:12px">
     <div class="row" style="margin-bottom:12px">${plan0.same ? `<span class="daytype M">Meta personalizada</span>` : `<button class="daytype ${type}" id="cycleType" title="Toque para trocar o tipo deste dia">${TYPE_NAME[type]} ${overridden?"<small>(ajustado)</small>":""}</button>`}<button class="goal-edit" id="goalEdit" aria-label="Editar metas de calorias e macros">✎ Metas</button></div>
     <div class="hero"><div>
-      <div class="kcal-big num">${r0(t.kcal)}<small> / ${tg.kcal} kcal</small></div>
-      ${S.exAdd === false ? `<div class="kcal-sub">${remain >= 0 ? `Restam <b class="num">${r0(remain)} kcal</b>` : `<b class="num bad">${r0(-remain)} kcal</b> acima da meta`}</div>` : ""}
+      <div class="kcal-big num">${r0(t.kcal - (tg.ex || 0))}<small> / ${tg.base || tg.kcal} kcal</small></div>
+      <div class="kcal-sub">${remain >= 0 ? `Restam <b class="num">${r0(remain)} kcal</b>` : `<b class="num bad">${r0(-remain)} kcal</b> acima da meta`}</div>
     </div>
     <div><div class="rank">${rankSvg()}<span class="letter ${rk?"":"none"}">${rk || "–"}</span></div><div class="rank-cap">${isToday && !rk ? "Em andamento" : "Rank do dia"}</div></div></div>
     ${(() => { const ex = dayExercise(k), base = tg.base || tg.kcal, f = n => r0(n).toLocaleString("pt-BR");
-      if (S.exAdd === false) return ex ? `<p class="note" style="margin:10px 0 0">Exercício neste dia: <span class="num">${f(ex)} kcal</span>, sem somar à meta (dá para ligar em Ajustes).</p>` : "";
-      return `<div class="kcal-eq num" aria-label="Meta ${f(base)} menos comida ${f(t.kcal)} mais exercício ${f(ex)}: ${remain >= 0 ? `restam ${f(remain)}` : `${f(-remain)} acima`} kcal">
-        <span><b>${f(base)}</b><small>Meta</small></span><i aria-hidden="true">−</i>
-        <span><b>${f(t.kcal)}</b><small>Comida</small></span><i aria-hidden="true">+</i>
+      if (S.exAdd === false) return ex ? `<p class="note" style="margin:10px 0 0">Exercício neste dia: <span class="num">${f(ex)} kcal</span>, sem descontar do que você comeu (dá para ligar em Ajustes).</p>` : "";
+      const net = t.kcal - ex;
+      return `<div class="kcal-eq num" aria-label="Comida ${f(t.kcal)} menos exercício ${f(ex)}: saldo de ${f(net)} kcal, de uma meta de ${f(base)}">
+        <span><b>${f(t.kcal)}</b><small>Comida</small></span><i aria-hidden="true">−</i>
         <button id="eqEx" class="${ex ? "on" : ""}" aria-label="Exercício: adicionar ou ver atividades"><b>${ex ? f(ex) : "+"}</b><small>Exercício</small></button><i aria-hidden="true">=</i>
-        <span class="res${remain < 0 ? " bad" : ""}"><b>${f(Math.abs(remain))}</b><small>${remain >= 0 ? "Restam" : "Acima"}</small></span></div>`; })()}
-    <div class="bars">${barHTML("p","Proteína",t.p,tg.p)}${barHTML("c","Carbo",t.c,tg.c)}${barHTML("f","Gordura",t.f,tg.f)}</div>
-    ${S.showMicro && d && d.items.length ? (() => { const mi = dayMicro(k), fbT = fiberGoal(tg.kcal), naM = sodiumMax(), naOk = mi.na <= naM;
+        <span class="res${net > base ? " bad" : ""}"><b>${f(net)}</b><small>Saldo</small></span></div>`; })()}
+    <div class="bars">${barHTML("p","Proteína",t.p,tg.p)}${(() => { const exC = (tg.ex || 0) / 4;
+      return exC ? barHTML("c", `Carbo <small class="bar-ex">−${r0(exC)} g do exercício</small>`, Math.max(0, t.c - exC), plan0[type].c) : barHTML("c","Carbo",t.c,tg.c); })()}${barHTML("f","Gordura",t.f,tg.f)}</div>
+    ${S.showMicro && d && d.items.length ? (() => { const mi = dayMicro(k), fbT = fiberGoal(tg.base || tg.kcal), naM = sodiumMax(), naOk = mi.na <= naM;
       return `<div class="micro num"><span>Fibra <b>${r0(mi.fb)}</b> / ${fbT} g</span><span class="${naOk ? "" : "bad"}">Sódio <b>${r0(mi.na).toLocaleString("pt-BR")}</b> / ${naM.toLocaleString("pt-BR")} mg</span>${mi.kcal && mi.cover < mi.kcal*0.8 ? `<small>parcial: alguns alimentos sem esse dado</small>` : ""}</div>`; })() : ""}
     ${plan0.tdeeReal ? `<p class="note" style="margin:8px 0 0">Meta ajustada pelo seu gasto real: <span class="num">${plan0.tdeeReal.toLocaleString("pt-BR")} kcal/dia</span>.</p>` : ""}
   </section>`;
@@ -3394,7 +3396,7 @@ function openActivity(k, editId){
 function actsHTML(k){
   const list = dayActs(k), tot = dayExercise(k);
   return `<h2 class="sec b" id="actSec"><span class="t">Cardio e atividades</span>${tot ? `<small>${tot.toLocaleString("pt-BR")} kcal</small>` : ""}</h2><section class="panel">
-    ${list.length ? `<ul class="list-edit acts">${list.map(a => `<li><button class="act-row" data-aed="${a.id}"><span>${actDef(a.a).ic} ${esc(actLabel(a))} <small class="muted num">· ${actAmount(a)}</small></span><b class="num">${a.kcal.toLocaleString("pt-BR")} kcal</b></button></li>`).join("")}</ul>` : `<p class="note" style="margin:0">Caminhada, corrida, bicicleta e outras. O app calcula o gasto pelo seu peso e pela distância ou pelo tempo${S.exAdd === false ? "." : " e soma à meta de calorias do dia, na aba Dieta."}</p>`}
+    ${list.length ? `<ul class="list-edit acts">${list.map(a => `<li><button class="act-row" data-aed="${a.id}"><span>${actDef(a.a).ic} ${esc(actLabel(a))} <small class="muted num">· ${actAmount(a)}</small></span><b class="num">${a.kcal.toLocaleString("pt-BR")} kcal</b></button></li>`).join("")}</ul>` : `<p class="note" style="margin:0">Caminhada, corrida, bicicleta e outras. O app calcula o gasto pelo seu peso e pela distância ou pelo tempo${S.exAdd === false ? "." : " e desconta do que você comeu no dia, na aba Dieta."}</p>`}
     <button class="newmeal" id="actNew" style="margin-top:10px">+ Caminhada, corrida e outras</button></section>`;
 }
 function bindActs(k){
@@ -4020,7 +4022,7 @@ function renderEvolucao(){
   }
   html += socialHTML();
   html += secH("Peso", "média de 7 dias", true) + `<section class="panel">${inRange.length >= 2 ? `<div class="chartbox"><canvas id="cW" aria-label="Gráfico de peso"></canvas></div>` : `<p class="note" style="margin:0">Registre o peso em jejum na aba Dieta. Com dois registros o gráfico aparece aqui, com a linha de tendência de 7 dias.</p>`}</section>`;
-  html += secH("Calorias", "consumo × meta") + `<section class="panel">${logged.length ? `<div class="chartbox"><canvas id="cK" aria-label="Gráfico de calorias"></canvas></div><p class="note" style="margin:8px 0 0">Média: <span class="num">${r0(avgK)} kcal</span> · proteína média <span class="num">${r0(avgP)} g</span>. Barras: vermelho carbo alto, branco médio, azul baixo. Traços: meta do dia.</p>` : `<p class="note" style="margin:0">Quando você registrar refeições, cada dia aparece aqui comparado à meta do ciclo.</p>`}</section>`;
+  html += secH("Calorias", "consumo × meta") + `<section class="panel">${logged.length ? `<div class="chartbox"><canvas id="cK" aria-label="Gráfico de calorias"></canvas></div><p class="note" style="margin:8px 0 0">Média: <span class="num">${r0(avgK)} kcal</span> · proteína média <span class="num">${r0(avgP)} g</span>. Barras: vermelho carbo alto, branco médio, azul baixo${S.exAdd === false ? "" : ", já com o exercício descontado"}. Traços: meta do dia.</p>` : `<p class="note" style="margin:0">Quando você registrar refeições, cada dia aparece aqui comparado à meta do ciclo.</p>`}</section>`;
   html += secH("Força", "1RM estimado", true) + `<section class="panel">${liftNames.length ? `<select id="exSel" aria-label="Exercício">${liftNames.map(n => `<option ${n===ui.exPick?"selected":""}>${esc(n)}</option>`).join("")}</select><div class="chartbox" style="margin-top:10px"><canvas id="cL" aria-label="Gráfico de força"></canvas></div><p class="note" style="margin:8px 0 0">Estimativa de Epley a partir da melhor série de cada treino.</p>` : `<p class="note" style="margin:0">Finalize treinos com carga e repetições anotadas para ver sua força subir aqui.</p>`}</section>`;
   view.innerHTML = html;
   view.querySelectorAll("[data-r]").forEach(b => b.onclick = () => { ui.range = +b.dataset.r; render(); });
@@ -4053,8 +4055,8 @@ function renderEvolucao(){
   if ($("#cK")){
     const ks = keys.slice(-30);
     charts.push(new C($("#cK"), {type:"bar", data:{labels:ks.map(shortDate), datasets:[
-      {type:"line", label:"Meta", data:ks.map(k => dayTarget(k).kcal), showLine:false, pointStyle:"line", pointRadius:7, pointBorderWidth:2, borderColor:"#74c6ff"},
-      {label:"Consumo", data:ks.map(k => r0(dayTotals(k).kcal) || null), backgroundColor:ks.map(k => ({A:"#e3172c", M:"#d9d6ce", B:"#1f8bff"})[dayType(k)]), borderRadius:0, barPercentage:.8}]},
+      {type:"line", label:"Meta", data:ks.map(k => { const g = dayTarget(k); return g.base || g.kcal; }), showLine:false, pointStyle:"line", pointRadius:7, pointBorderWidth:2, borderColor:"#74c6ff"},
+      {label:"Consumo", data:ks.map(k => r0(dayTotals(k).kcal - (dayTarget(k).ex || 0)) || null), backgroundColor:ks.map(k => ({A:"#e3172c", M:"#d9d6ce", B:"#1f8bff"})[dayType(k)]), borderRadius:0, barPercentage:.8}]},
       options:{maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{grid:{display:false}, ticks:{maxTicksLimit:7}}, y:{beginAtZero:true}}}}));
   }
   if ($("#cL") && ui.exPick){
@@ -4242,8 +4244,8 @@ function renderAjustes(){
       ${["A","M","B"].map(t => `<div class="field"><label for="sF${t}">Gordura ${TYPE_NAME[t].split(" ")[1]} (g/kg)</label><input id="sF${t}" type="text" inputmode="decimal" value="${fmt1(S.fat[t])}"></div><div class="field"><label for="sR${t}">Peso do carbo ${TYPE_NAME[t].split(" ")[1]}</label><input id="sR${t}" type="text" inputmode="decimal" value="${fmt1(S.ratio[t])}"></div>`).join("")}
     </div><p class="note">O "peso do carbo" define a proporção entre os dias. O app distribui o carboidrato para que a média da semana bata a meta de calorias.</p></details>`}
     <div class="label" style="margin:16px 0 6px">Exercício</div>
-    <button class="chip share-tg" id="sExAdd" aria-pressed="${S.exAdd !== false}">${S.exAdd !== false ? "✓ Somar caminhada, corrida e outras à meta do dia" : "Exercício não muda a meta do dia"}</button>
-    <p class="note" style="margin:6px 0 0">${S.exAdd !== false ? "As calorias das atividades registradas na aba Treino entram na meta do dia como carboidrato. Para não contar duas vezes, deixe o nível de atividade do perfil em <b>Leve</b> se o cardio for o que te deixa mais ativo." : "As atividades continuam registradas na aba Treino, só não mudam a meta."}</p>`) + `</div>`;
+    <button class="chip share-tg" id="sExAdd" aria-pressed="${S.exAdd !== false}">${S.exAdd !== false ? "✓ Descontar caminhada, corrida e outras do que comi" : "Exercício não entra na conta do dia"}</button>
+    <p class="note" style="margin:6px 0 0">${S.exAdd !== false ? "As calorias das atividades registradas na aba Treino são descontadas do que você comeu no dia (Comida − Exercício = Saldo), e a meta continua a mesma. Para não contar duas vezes, deixe o nível de atividade do perfil em <b>Leve</b> se o cardio for o que te deixa mais ativo." : "As atividades continuam registradas na aba Treino, só não mudam a meta."}</p>`) + `</div>`;
 
   let MEALS_BODY = `
     <ul class="list-edit">${S.meals.map((m,i) => `<li><span>${esc(m.n)}</span><button class="mini" data-up="${i}" aria-label="Subir ${esc(m.n)}" ${i===0?"disabled":""}>↑</button><button class="mini" data-down="${i}" aria-label="Descer ${esc(m.n)}" ${i===S.meals.length-1?"disabled":""}>↓</button><button class="mini del" data-rm="${i}" aria-label="Remover ${esc(m.n)}">×</button></li>`).join("")}</ul>

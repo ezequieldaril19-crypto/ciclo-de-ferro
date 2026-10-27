@@ -210,7 +210,7 @@ ok(act.runT === act.run, "com a distância, o tempo não muda a conta", act);
 ok(act.walkKm === Math.round(0.5 * act.kg * 4), "caminhada: cerca de 0,5 kcal por kg a cada km", act);
 ok(act.walk === Math.round(2.5 * act.kg), "só com o tempo: (MET − 1) × peso × horas", act);
 ok(act.withEx === act.base + act.run + act.walk && act.off === act.base, "exercício soma à meta só com a opção ligada", act);
-ok(/Exercício/i.test(act.eq) && /Restam/i.test(act.eq), "painel mostra meta − comida + exercício = restam", act.eq);
+ok(/Comida/i.test(act.eq) && /Exercício/i.test(act.eq) && /Saldo/i.test(act.eq), "painel mostra comida − exercício = saldo", act.eq);
 await page.click('.tabs button[data-tab="ajustes"]');
 ok(await page.evaluate(() => { const ds = [...document.querySelectorAll("#view details.set")]; return ds.length >= 8 && ds.every(d => !d.open); }), "Ajustes em itens fechados");
 await page.click("#goalSec summary");
