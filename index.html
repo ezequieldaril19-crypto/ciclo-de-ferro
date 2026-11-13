@@ -2000,8 +2000,20 @@ function bindDateBar(){
   $("#prevDay").onclick = () => { ui.day = addDays(ui.day,-1); render(); };
   $("#nextDay").onclick = () => { ui.day = addDays(ui.day,1); render(); };
 }
-function rankSvg(){
-  return `<svg viewBox="0 0 96 96"><path d="M14 30 L44 8 L88 22 L84 70 L50 90 L10 74 Z" fill="rgba(227,23,44,.12)" stroke="var(--red)" stroke-width="2"/><path d="M20 34 L46 16 L80 28 L78 66 L50 82 L18 70 Z" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-dasharray="5 4"/></svg>`;
+// Pizza do dia: calorias de cada macro dentro da meta (proteína azul, carbo branco, gordura vermelha); a fatia escura é o que falta
+function macroPie(t, tg){
+  const kc = {p:(t.p || 0)*4, c:(t.c || 0)*4, f:(t.f || 0)*9}, sum = kc.p + kc.c + kc.f, goal = Math.max(1, tg.kcal || 0), full = Math.max(goal, sum);
+  const C = 48, R = 35, col = {p:"var(--prot)", c:"var(--carb)", f:"var(--fat)"}, over = sum > goal * 1.05;
+  let a0 = -Math.PI/2, out = "";
+  ["p","c","f"].forEach(m => {
+    const fr = kc[m] / full; if (fr <= 0.002) return;
+    if (fr >= 0.999){ out += `<circle cx="${C}" cy="${C}" r="${R}" fill="${col[m]}"/>`; return; }
+    const a1 = a0 + fr * 2 * Math.PI, pt = a => `${(C + R*Math.cos(a)).toFixed(2)} ${(C + R*Math.sin(a)).toFixed(2)}`;
+    out += `<path d="M${C} ${C}L${pt(a0)}A${R} ${R} 0 ${fr > 0.5 ? 1 : 0} 1 ${pt(a1)}Z" fill="${col[m]}" stroke="#0e0e13" stroke-width="1.5" stroke-linejoin="round"/>`;
+    a0 = a1;
+  });
+  const pc = m => sum ? Math.round(kc[m] / sum * 100) : 0;
+  return `<svg viewBox="0 0 96 96" role="img" aria-label="Calorias do dia por macro: proteína ${pc("p")}%, carbo ${pc("c")}%, gordura ${pc("f")}%; ${Math.round(sum / goal * 100)}% da meta"><circle cx="${C}" cy="${C}" r="${R}" fill="#1b1b22"/>${out}<circle cx="${C}" cy="${C}" r="43" fill="none" stroke="${over ? "var(--hazard)" : "var(--red)"}" stroke-width="2"/><circle cx="${C}" cy="${C}" r="39.5" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-dasharray="5 4"/></svg>`;
 }
 function barHTML(cls, label, val, tg){
   const pct = tg ? Math.min(100, val/tg*100) : 0;
@@ -2043,7 +2055,7 @@ function renderHoje(){
       <div class="kcal-big num">${r0(t.kcal - (tg.ex || 0))}<small> / ${tg.base || tg.kcal} kcal</small></div>
       <div class="kcal-sub">${remain >= 0 ? `Restam <b class="num">${r0(remain)} kcal</b>` : `<b class="num bad">${r0(-remain)} kcal</b> acima da meta`}</div>
     </div>
-    <div><div class="rank">${rankSvg()}<span class="letter ${rk?"":"none"}">${rk || "–"}</span></div><div class="rank-cap">${isToday && !rk ? "Em andamento" : "Rank do dia"}</div></div></div>
+    <div><div class="rank">${macroPie(t, tg)}</div><div class="rank-cap">${t.kcal ? `${Math.round(((t.p||0)*4 + (t.c||0)*4 + (t.f||0)*9) / Math.max(1, tg.kcal) * 100)}% da meta` : "Macros do dia"}</div></div></div>
     ${(() => { const ex = dayExercise(k), base = tg.base || tg.kcal, f = n => r0(n).toLocaleString("pt-BR");
       if (S.exAdd === false) return ex ? `<p class="note" style="margin:10px 0 0">Exercício neste dia: <span class="num">${f(ex)} kcal</span>, sem descontar do que você comeu (dá para ligar em Ajustes).</p>` : "";
       const net = t.kcal - ex;
